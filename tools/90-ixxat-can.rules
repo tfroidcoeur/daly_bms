@@ -1,0 +1,10 @@
+# Bring an IXXAT CAN interface up, configured, as soon as it is plugged in.
+#
+# The interface loses its bit rate and its up state on every unplug, and a
+# STOPPED controller neither receives nor acknowledges - which looks exactly
+# like a wiring fault from the other end of the bus. This removes that trap.
+#
+# Installed to /etc/udev/rules.d/ by tools/setup-ixxat.sh.
+ACTION=="add", SUBSYSTEM=="net", KERNEL=="can*", ATTRS{idVendor}=="08d8", \
+    RUN+="/usr/sbin/ip link set %k type can bitrate 250000 restart-ms 100", \
+    RUN+="/usr/sbin/ip link set %k up"

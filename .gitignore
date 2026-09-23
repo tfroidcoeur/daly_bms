@@ -1,0 +1,15 @@
+build/
+.venv/
+shots/
+compile_commands.json
+
+# Vendor datasheets - fetch with docs/hardware/datasheets/fetch-datasheets.sh
+docs/hardware/datasheets/*.pdf
+
+# ESP-IDF
+port/esp32/build/
+port/esp32/sdkconfig
+port/esp32/sdkconfig.old
+port/esp32/managed_components/
+port/esp32/dependencies.lock
+.cache

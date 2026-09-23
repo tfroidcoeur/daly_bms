@@ -1,0 +1,41 @@
+menu "Daly BMS monitor"
+
+choice BMS_BUILD_MODE
+    prompt "Build mode"
+    default BMS_MODE_NORMAL
+    help
+      What the firmware does when it boots. The two diagnostic modes exist
+      because the Daly field layouts and the CAN wiring are the two things
+      that cannot be verified anywhere but on the bench.
+
+config BMS_MODE_NORMAL
+    bool "Normal - poll the packs and draw the UI"
+
+config BMS_RAW_LOGGER
+    bool "Raw CAN frame logger"
+    help
+      Dumps every transmitted and received CAN frame over USB serial and does
+      not initialise the display.
+
+      Use this on first contact with real hardware: the Daly field layouts in
+      docs/hardware/daly-can-protocol.md come from community reverse-engineering
+      rather than a vendor datasheet, so they must be checked against an actual
+      BMS (cross-referenced with Daly's own app) before the GUI is trusted.
+
+config BMS_CAN_LOOP_TEST
+    bool "CAN transceiver loop test"
+    help
+      Bit-bangs the CAN TX pin and watches the CAN RX pin, with the TWAI
+      controller out of the picture entirely. That walks a level out through
+      the transceiver's driver, onto the bus, back through its receiver and
+      into the MCU - so a pass proves the whole board-side chain at once:
+      3V3 on the transceiver, Rs grounded, CANH/CANL wired, and TX/RX the
+      right way round.
+
+      Worth having because every one of those faults looks identical through
+      TWAI: the controller cannot read back its own bits, and reports a flood
+      of bus errors whichever of them is to blame. This says which.
+
+endchoice
+
+endmenu

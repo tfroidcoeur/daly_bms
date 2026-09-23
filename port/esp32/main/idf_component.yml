@@ -1,0 +1,18 @@
+dependencies:
+  idf:
+    version: ">=5.3"
+
+  # LVGL only. Two components that looked applicable are deliberately absent:
+  #
+  #   leazer/esp_lcd_st7305   - not an esp_lcd panel driver despite the name;
+  #                             it is standalone and hardcoded for a 2.9"
+  #                             168x384 panel. Our own st7305.c replaces it.
+  #   espressif/esp_lvgl_port - refuses to compile against LV_COLOR_DEPTH_1
+  #                             (#error), because its "monochrome" mode expects
+  #                             LVGL to render RGB565 and then packs down to
+  #                             1 bpp. That would anti-alias text and threshold
+  #                             it, so the device would no longer match the host
+  #                             simulator. board.c drives LVGL directly instead.
+  #
+  # Pinned to the exact version the host build uses, so the two cannot drift.
+  lvgl/lvgl: "==9.5.0"

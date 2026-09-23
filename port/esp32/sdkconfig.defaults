@@ -1,0 +1,33 @@
+CONFIG_IDF_TARGET="esp32s3"
+
+# ESP32-S3-WROOM-1-N16R8: 16 MB flash, 8 MB octal PSRAM.
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+
+# Console over the built-in USB serial/JTAG, not UART0 - UART0 is on the
+# expansion header and stays free.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# LVGL renders RGB565; board.c thresholds to one bit in flush_cb, using the
+# same ui_px_is_paper() rule as the host simulator.
+CONFIG_LV_COLOR_DEPTH_16=y
+
+# The RGB565 render buffer is 300*400*2 = 240 kB - too big for internal RAM,
+# so LVGL's allocations go to the octal PSRAM.
+CONFIG_SPIRAM_USE_MALLOC=y
+# The UI ships its own bitmap fonts (ui/fonts, tools/make-fonts.sh), so none of
+# LVGL's 4 bpp Montserrat built-ins are compiled in. LV_FONT_DEFAULT still has
+# to point at something - Kconfig only offers built-ins here, not our fonts -
+# and unscii_8 is the one built-in that is itself a bitmap font. Nothing the UI
+# draws uses it; every label is given a font explicitly.
+CONFIG_LV_FONT_DEFAULT_UNSCII_8=y
+CONFIG_LV_USE_ANIMIMG=n
+
+# Load-bearing, not a tuning knob. The CAN poll loop in main.c paces itself with
+# vTaskDelay(pdMS_TO_TICKS(2)), and pdMS_TO_TICKS is integer arithmetic: at the
+# IDF default of 100 Hz that truncates to 0 ticks, vTaskDelay(0) only yields,
+# and app_main (priority 1, core 0) would then starve IDLE0 into a task
+# watchdog reset. 1000 Hz is what makes that 2 ms an actual 2 ms.
+CONFIG_FREERTOS_HZ=1000

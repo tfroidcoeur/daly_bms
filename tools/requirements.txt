@@ -1,0 +1,2 @@
+# Host-side tooling for the CAN simulator and frame inspection.
+python-can>=4.6,<5
