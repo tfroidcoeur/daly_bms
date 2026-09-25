@@ -48,14 +48,14 @@ static uint8_t     g_rows_built;
 
 lv_obj_t *ui_page_cells_create(lv_obj_t *page)
 {
-    g_title = ui_label(page, UI_FONT_L, "CELLS");
+    g_title = ui_label(page, UI_FONT_L_B, "CELLS");
     lv_obj_align(g_title, LV_ALIGN_TOP_LEFT, 0, 0);
 
     /* The nav hint moves up here so the bottom row can be given to a cell. */
-    lv_obj_t *back = ui_label(page, UI_FONT_S, "KEY: back");
+    lv_obj_t *back = ui_label(page, UI_FONT_S_B, "KEY: back");
     lv_obj_align(back, LV_ALIGN_TOP_RIGHT, 0, 4);
 
-    g_sub = ui_label(page, UI_FONT_S, "");
+    g_sub = ui_label(page, UI_FONT_S_B, "");
     lv_obj_align(g_sub, LV_ALIGN_TOP_LEFT, 0, 20);
 
     lv_obj_t *rule = ui_rule(page);
@@ -74,16 +74,16 @@ lv_obj_t *ui_page_cells_create(lv_obj_t *page)
         char idx[8];
 
         snprintf(idx, sizeof idx, "C%u", i + 1);
-        r->index = ui_label(page, UI_FONT_S, idx);
+        r->index = ui_label(page, UI_FONT_S_B, idx);
         lv_obj_align(r->index, LV_ALIGN_TOP_LEFT, x, y + 2);
 
-        r->mark = ui_label(page, UI_FONT_S, "");
+        r->mark = ui_label(page, UI_FONT_S_B, "");
         lv_obj_align(r->mark, LV_ALIGN_TOP_LEFT, x + MARK_X, y + 2);
 
         r->bar = ui_bar(page, BAR_W, 12);
         lv_obj_align(r->bar, LV_ALIGN_TOP_LEFT, x + BAR_X, y + 1);
 
-        r->mv = ui_label(page, UI_FONT_S, "----");
+        r->mv = ui_label(page, UI_FONT_S_B, "----");
         lv_obj_align(r->mv, LV_ALIGN_TOP_LEFT, x + VALUE_X, y + 2);
     }
 

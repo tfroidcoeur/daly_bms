@@ -74,6 +74,7 @@ if(SDL2_FOUND)
         ui/fonts/fixed_9x15.c
         ui/fonts/fixed_9x15b.c
         ui/fonts/fixed_10x20.c
+        ui/fonts/fixed_10x20b.c
         ui/fonts/fixed_6x13b_2x.c
         ui/fonts/mont1_12.c
         ui/fonts/mont1_14.c

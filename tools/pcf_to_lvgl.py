@@ -78,7 +78,25 @@ def render(font, ch, ascent, descent, threshold):
     return x1 - x0, y1 - y0, x0 - PAD, (ascent + PAD) - y1, rows
 
 
-def build(font, codepoints, ascent, descent, threshold, adv_override=None, scale=1):
+def embolden_rows(rows):
+    """
+    Widen every stem by one pixel: OR each row with itself shifted right.
+
+    misc-fixed ships bold cuts for 6x13, 7x14, 8x13 and 9x15 but not for 10x20,
+    so the largest rung has to be thickened synthetically. The glyph box grows
+    by a pixel while the advance does not, which keeps the monospaced grid the
+    pages do their column arithmetic on - the extra pixel comes out of the
+    right-hand side bearing.
+    """
+    out = []
+    for row in rows:
+        ext = row + [0]          # one more column for the shifted copy to land in
+        out.append([ext[x] | (ext[x - 1] if x else 0) for x in range(len(ext))])
+    return out
+
+
+def build(font, codepoints, ascent, descent, threshold, adv_override=None,
+          scale=1, bold=False):
     glyphs = []
     for cp in codepoints:
         ch = chr(cp)
@@ -89,6 +107,10 @@ def build(font, codepoints, ascent, descent, threshold, adv_override=None, scale
             # A blank glyph still needs a box, or LVGL reads a zero-size bitmap.
             bw, bh, ox, oy, rows = 1, 1, 0, 0, [[0]]
         adv = adv_override(bw) if adv_override else font.getlength(ch)
+        if bold and rows:
+            rows = embolden_rows(rows)
+            bw += 1
+
         if scale > 1:
             # Integer pixel doubling. misc-fixed stops at 10x20, so the one
             # oversized alert on the pack page has to come from somewhere; a
@@ -303,6 +325,8 @@ def main():
     ap.add_argument("--symbol-font")
     ap.add_argument("--symbols", default="")
     ap.add_argument("--symbol-size", type=int)
+    ap.add_argument("--embolden", action="store_true",
+                   help="widen stems by one pixel, for strikes with no bold cut")
     ap.add_argument("--scale", type=int, default=1,
                     help="integer pixel doubling factor")
     args = ap.parse_args()
@@ -314,7 +338,7 @@ def main():
               file=sys.stderr)
 
     glyphs = build(base, sorted(set(parse_ranges(args.range))), ascent, descent,
-                   False, scale=args.scale)
+                   False, scale=args.scale, bold=args.embolden)
 
     if args.symbol_font and args.symbols:
         sym = ImageFont.truetype(args.symbol_font, args.symbol_size or args.size)

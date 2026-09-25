@@ -61,7 +61,7 @@ lv_obj_t *ui_bar(lv_obj_t *parent, int32_t w, int32_t h)
     /* Hollow outline; a 1-bit panel has no grey to shade with. */
     lv_obj_set_style_bg_color(bar, lv_color_white(), LV_PART_MAIN);
     lv_obj_set_style_border_color(bar, lv_color_black(), LV_PART_MAIN);
-    lv_obj_set_style_border_width(bar, 1, LV_PART_MAIN);
+    lv_obj_set_style_border_width(bar, 2, LV_PART_MAIN);
     lv_obj_set_style_radius(bar, 0, LV_PART_MAIN);
 
     lv_obj_set_style_bg_color(bar, lv_color_black(), LV_PART_INDICATOR);
@@ -95,20 +95,20 @@ lv_obj_t *ui_gauge(lv_obj_t *parent, int32_t size, int32_t max,
 
     /* Arc, minor ticks, major ticks: all solid black, varying only in weight. */
     lv_obj_set_style_arc_color(scale, lv_color_black(), LV_PART_MAIN);
-    lv_obj_set_style_arc_width(scale, 2, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(scale, 3, LV_PART_MAIN);
     lv_obj_set_style_line_color(scale, lv_color_black(), LV_PART_ITEMS);
-    lv_obj_set_style_line_width(scale, 1, LV_PART_ITEMS);
+    lv_obj_set_style_line_width(scale, 2, LV_PART_ITEMS);
     lv_obj_set_style_length(scale, 5, LV_PART_ITEMS);
     lv_obj_set_style_line_color(scale, lv_color_black(), LV_PART_INDICATOR);
-    lv_obj_set_style_line_width(scale, 2, LV_PART_INDICATOR);
+    lv_obj_set_style_line_width(scale, 3, LV_PART_INDICATOR);
     lv_obj_set_style_length(scale, 9, LV_PART_INDICATOR);
     /* Major ticks and their labels share LV_PART_INDICATOR. */
-    lv_obj_set_style_text_font(scale, UI_FONT_S, LV_PART_INDICATOR);
+    lv_obj_set_style_text_font(scale, UI_FONT_S_B, LV_PART_INDICATOR);
     lv_obj_set_style_text_color(scale, lv_color_black(), LV_PART_INDICATOR);
     lv_obj_set_style_pad_all(scale, 2, LV_PART_INDICATOR);
 
     lv_obj_t *needle = lv_line_create(scale);
-    lv_obj_set_style_line_width(needle, 3, 0);
+    lv_obj_set_style_line_width(needle, 4, 0);
     lv_obj_set_style_line_color(needle, lv_color_black(), 0);
     lv_obj_set_style_line_rounded(needle, false, 0);
 
@@ -140,10 +140,10 @@ void ui_gauge_set(lv_obj_t *gauge, lv_obj_t *needle, int32_t value)
 
 lv_obj_t *ui_field(lv_obj_t *parent, const char *caption, int32_t x, int32_t y)
 {
-    lv_obj_t *cap = ui_label(parent, UI_FONT_S, caption);
+    lv_obj_t *cap = ui_label(parent, UI_FONT_S_B, caption);
     lv_obj_align(cap, LV_ALIGN_TOP_LEFT, x, y);
 
-    lv_obj_t *val = ui_label(parent, UI_FONT_L, "-");
+    lv_obj_t *val = ui_label(parent, UI_FONT_L_B, "-");
     lv_obj_align(val, LV_ALIGN_TOP_LEFT, x, y + 14);
     return val;
 }
@@ -222,7 +222,7 @@ lv_obj_t *ui_label_centered(lv_obj_t *parent, const lv_font_t *font,
 lv_obj_t *ui_rule(lv_obj_t *parent)
 {
     lv_obj_t *line = lv_obj_create(parent);
-    lv_obj_set_size(line, UI_CONTENT_W, 1);
+    lv_obj_set_size(line, UI_CONTENT_W, 2);
     lv_obj_set_style_bg_color(line, lv_color_black(), 0);
     lv_obj_set_style_border_width(line, 0, 0);
     lv_obj_set_style_radius(line, 0, 0);

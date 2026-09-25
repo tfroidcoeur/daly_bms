@@ -17,6 +17,7 @@ idf_component_register(
         "${REPO_ROOT}/ui/fonts/fixed_9x15.c"
         "${REPO_ROOT}/ui/fonts/fixed_9x15b.c"
         "${REPO_ROOT}/ui/fonts/fixed_10x20.c"
+        "${REPO_ROOT}/ui/fonts/fixed_10x20b.c"
         "${REPO_ROOT}/ui/fonts/fixed_6x13b_2x.c"
         "${REPO_ROOT}/ui/ui.c"
         "${REPO_ROOT}/ui/page_overview.c"

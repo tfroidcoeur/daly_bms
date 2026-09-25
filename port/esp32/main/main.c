@@ -187,7 +187,8 @@ static void can_loop_test(void)
 
         ESP_LOGI(TAG, "forward, TX GPIO%d -> RX GPIO%d:",
                  BOARD_CAN_TX, BOARD_CAN_RX);
-        if (loop_follows(BOARD_CAN_TX, BOARD_CAN_RX)) {
+        const bool forward_ok = loop_follows(BOARD_CAN_TX, BOARD_CAN_RX);
+        if (forward_ok) {
             ESP_LOGI(TAG, "PASS: the loop is closed and the right way round.");
             ESP_LOGI(TAG, "      Transceiver powered, Rs grounded, bus wired.");
             ESP_LOGI(TAG, "      A silent bus now means the cable or the far node.");
@@ -197,22 +198,49 @@ static void can_loop_test(void)
             ESP_LOGE(TAG, "      Check, in this order: 3V3 on the transceiver,");
             ESP_LOGE(TAG, "      Rs tied to GND, then CRX/R reaching GPIO%d.",
                      BOARD_CAN_RX);
+        } else {
             /*
-             * Only worth trying with the pins reversed once the forward
-             * direction has failed: if the wiring IS correct, driving the RX
-             * pin puts our output against the transceiver's output.
+             * Driven but unmoving. Which level it is stuck at says which half
+             * of the transceiver is unhappy, and they need different fixes.
              */
-            ESP_LOGI(TAG, "trying it reversed, in case CTX/CRX are swapped:");
+            pin_in(BOARD_CAN_RX, GPIO_PULLUP_DISABLE, GPIO_PULLDOWN_DISABLE);
+            const int stuck = gpio_get_level(BOARD_CAN_RX);
+
+            ESP_LOGE(TAG, "FAIL: GPIO%d is stuck %s and does not follow GPIO%d.",
+                     BOARD_CAN_RX, stuck ? "HIGH" : "LOW", BOARD_CAN_TX);
+            if (stuck == 0) {
+                ESP_LOGE(TAG, "      Stuck low = the receiver sees the bus as");
+                ESP_LOGE(TAG, "      permanently DOMINANT. Something holds CANH");
+                ESP_LOGE(TAG, "      above CANL - most often CANL shorted to GND");
+                ESP_LOGE(TAG, "      (RJ45 pins 2 and 3 are adjacent), or CANH");
+                ESP_LOGE(TAG, "      shorted to 3V3. Measure CANL-to-GND: it");
+                ESP_LOGE(TAG, "      should be kilohms, not zero.");
+            } else {
+                ESP_LOGE(TAG, "      Stuck high = the receiver sees the bus as");
+                ESP_LOGE(TAG, "      permanently recessive, so the driver is not");
+                ESP_LOGE(TAG, "      reaching it: check Rs to GND, then that");
+                ESP_LOGE(TAG, "      CANH/CANL leave the transceiver at all.");
+            }
+        }
+
+        /*
+         * Whatever the forward direction did, if it failed, try it reversed.
+         * A swap makes our TX drive the transceiver's R output, so the RX pin
+         * reads as "driven" rather than floating - which means a swap can look
+         * like any of the failures above and has to be tested for explicitly.
+         *
+         * Safe only because we are here at all: the forward test has already
+         * failed, so the pins are not wired the way we expect.
+         */
+        if (!forward_ok) {
+            ESP_LOGI(TAG, "retrying reversed, in case CTX/CRX are swapped:");
             if (loop_follows(BOARD_CAN_RX, BOARD_CAN_TX)) {
                 ESP_LOGE(TAG, "SWAPPED: the loop closes with the pins reversed.");
-                ESP_LOGE(TAG, "         Move CTX to GPIO%d, CRX to GPIO%d.",
+                ESP_LOGE(TAG, "         Move CTX/D to GPIO%d and CRX/R to GPIO%d.",
                          BOARD_CAN_TX, BOARD_CAN_RX);
+            } else {
+                ESP_LOGI(TAG, "  not a swap - reversed does not work either.");
             }
-        } else {
-            ESP_LOGE(TAG, "FAIL: GPIO%d is driven but does not follow GPIO%d.",
-                     BOARD_CAN_RX, BOARD_CAN_TX);
-            ESP_LOGE(TAG, "      The receiver works, the driver does not:");
-            ESP_LOGE(TAG, "      check Rs to GND, then CANH/CANL to the bus.");
         }
 
         /*

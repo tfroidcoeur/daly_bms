@@ -29,6 +29,7 @@ extern const lv_font_t fixed_7x14b;
 extern const lv_font_t fixed_9x15;
 extern const lv_font_t fixed_9x15b;
 extern const lv_font_t fixed_10x20;
+extern const lv_font_t fixed_10x20b;
 extern const lv_font_t fixed_6x13b_2x;
 
 /*
@@ -41,7 +42,7 @@ extern const lv_font_t fixed_6x13b_2x;
 #define UI_FONT_M_B  (&fixed_7x14b)
 #define UI_FONT_L    (&fixed_9x15)
 #define UI_FONT_L_B  (&fixed_9x15b)
-#define UI_FONT_XL   (&fixed_10x20)
+#define UI_FONT_XL   (&fixed_10x20b)
 #define UI_FONT_XXL  (&fixed_6x13b_2x)
 
 /*
@@ -51,5 +52,8 @@ extern const lv_font_t fixed_6x13b_2x;
  */
 #define UI_FONT_S_W   6
 #define UI_FONT_S_H  13
+
+/* Cell advance of UI_FONT_XL. Emboldening widens the ink, not the advance. */
+#define UI_FONT_XL_W 10
 
 #endif /* UI_FONTS_H */

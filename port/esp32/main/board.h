@@ -42,8 +42,20 @@
  * GPIO1, GPIO2 and GPIO17. CAN takes the first two - P1 pins 7 and 9, in the
  * same column as 3V3 (pin 1) and GND (pin 3).
  */
+/*
+ * TX was moved to GPIO17 for a while during bring-up, to rule it out after a
+ * miswiring put this output against the transceiver's R output - two push-pull
+ * outputs fighting. It made no difference, and the fault turned out to be the
+ * transceiver module itself, so TX is back on GPIO1 and GPIO17 is free again.
+ *
+ * The lesson worth keeping: D (CTX) is an INPUT to the transceiver and takes
+ * our TX; R (CRX) is its OUTPUT and feeds our RX. Swapping them puts two
+ * drivers on one net.
+ */
 #define BOARD_CAN_TX         GPIO_NUM_1           /* P1 pin 7  -> transceiver D */
-#define BOARD_CAN_RX         GPIO_NUM_2           /* P1 pin 9  <- transceiver R */
+/* RX is on GPIO17 while bringing the bus up; GPIO2 (P1 pin 9) is equally
+ * usable and is where this will move back to once CAN is working. */
+#define BOARD_CAN_RX         GPIO_NUM_17          /* P1 pin 13 <- transceiver R */
 
 /* Initialise SPI, the ST7305 panel, and LVGL. Returns the LVGL display. */
 lv_display_t *board_display_init(void);

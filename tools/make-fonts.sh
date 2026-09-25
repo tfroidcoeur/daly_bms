@@ -46,7 +46,7 @@ PCF=$(mktemp -d)
 trap 'rm -rf "$PCF"' EXIT
 
 echo "misc-fixed (the UI's fonts):"
-# strike  size  output name   symbol px  scale
+# strike  size  output name   symbol px  scale  [bold = synthesise a bold cut]
 #
 # The symbol size is set below the cell height on purpose: FontAwesome's icons
 # fill their em box, so rendering one at the cell height gives a triangle taller
@@ -55,13 +55,14 @@ echo "misc-fixed (the UI's fonts):"
 # The last rung is 6x13 bold at 2x. misc-fixed's Latin strikes stop at 10x20,
 # and the one 12x24 in the package is a different (near-serif, JIS) design that
 # does not belong with the rest - see the specimen. Doubling keeps the family.
-while read -r STRIKE SIZE NAME SYMPX SCALE; do
+while read -r STRIKE SIZE NAME SYMPX SCALE BOLD; do
     gunzip -c "$X11/$STRIKE.pcf.gz" > "$PCF/$STRIKE.pcf"
+    [ "$BOLD" = "bold" ] && EMB=--embolden || EMB=
     .venv/bin/python tools/pcf_to_lvgl.py \
         --pcf "$PCF/$STRIKE.pcf" --size "$SIZE" --name "$NAME" \
         --range "$ASCII" \
         --symbol-font "$AWESOME" --symbols "$SYMBOLS" --symbol-size "$SYMPX" \
-        --scale "$SCALE" -o "ui/fonts/$NAME.c"
+        --scale "$SCALE" $EMB -o "ui/fonts/$NAME.c"
 done <<'TABLE'
 6x13   13 fixed_6x13     10 1
 6x13B  13 fixed_6x13b    10 1
@@ -70,6 +71,7 @@ done <<'TABLE'
 9x15   15 fixed_9x15     12 1
 9x15B  15 fixed_9x15b    12 1
 10x20  20 fixed_10x20    16 1
+10x20  20 fixed_10x20b   16 1 bold
 6x13B  13 fixed_6x13b_2x 10 2
 TABLE
 

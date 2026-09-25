@@ -47,6 +47,10 @@ fi
 # --- source -----------------------------------------------------------------
 if [ -d "$SRC/.git" ]; then
     echo "updating $SRC"
+    # Our patch below edits a tracked file, so a plain pull would refuse on the
+    # second run. Discard it and re-apply afterwards - that also picks it up
+    # automatically if upstream ever fixes the bug themselves.
+    git -C "$SRC" checkout -- .
     git -C "$SRC" pull --ff-only
 else
     echo "cloning into $SRC"
@@ -54,7 +58,44 @@ else
     git clone --depth 1 "$REPO" "$SRC"
 fi
 
+# --- upstream bug: CL2 firmware detected as legacy CL1 -----------------------
+#
+# ixxat_usb_core.c builds the CL2 threshold from major/minor/BUILD, but passes
+# the minor twice:
+#
+#   #define IX_FW_CL2  IX_FW_VER(IX_MIN_MAJORFWVERSION_SUPP_V2,
+#                                IX_MIN_MINORFWVERSION_SUPP_V2,
+#                                IX_MIN_MINORFWVERSION_SUPP_V2)   <- BUILD
+#
+# so the bar is 1.7.7 rather than the intended 1.7.0, and
+# IX_MIN_BUILDFWVERSION_SUPP_V2 is defined but never used. A device on firmware
+# 1.7.0 - the exact minimum - is then treated as legacy CL1 and its received
+# messages are decoded with the wrong layout: the interface transmits, the RX
+# counter never leaves zero, and nothing is logged.
+CORE="$SRC/kernel/drivers/net/can/usb/ixxat_usb/ixxat_usb_core.c"
+# IXXAT_NO_CL2_PATCH=1 leaves upstream's behaviour alone, to A/B the two
+# communication layers against a bus that is known to work.
+if [ "${IXXAT_NO_CL2_PATCH:-0}" = 1 ]; then
+    echo "skipping the CL2 patch (IXXAT_NO_CL2_PATCH=1): device stays on CL1"
+elif grep -q 'IX_MIN_MINORFWVERSION_SUPP_V2)' "$CORE"; then
+    sed -i 's/IX_MIN_MINORFWVERSION_SUPP_V2)/IX_MIN_BUILDFWVERSION_SUPP_V2)/' "$CORE"
+    echo "patched IX_FW_CL2 (upstream passes the minor version where the build belongs)"
+fi
+
 # --- build and install ------------------------------------------------------
+# DKMS keeps its OWN copy of the source under /usr/src/<name>-<ver> and builds
+# from that, so patching the checkout above is not enough: deregister the old
+# DKMS tree first and let `make install` re-copy the patched source. Without
+# this the driver rebuilds from stale, unpatched sources and nothing changes.
+if command -v dkms >/dev/null; then
+    dkms status 2>/dev/null | awk -F'[,/ ]+' '/^ix_usb_can/ {print $1"/"$2}' |
+        sort -u | while read -r mod; do
+            echo "removing stale DKMS tree $mod"
+            dkms remove "$mod" --all 2>/dev/null || true
+        done
+    rm -rf /usr/src/ix_usb_can-*
+fi
+
 make -C "$SRC" all
 make -C "$SRC" install
 
@@ -65,6 +106,11 @@ make -C "$SRC" install
 #   "Loading of module with unavailable key is rejected"
 # which looks nothing like a signing problem in the logs.
 MOK=/var/lib/shim-signed/mok/MOK.der
+# The just-built module only takes effect once the old one leaves memory -
+# reinstalling the .ko and replugging the adapter both re-use whatever is
+# already loaded, so a rebuilt driver silently changes nothing without this.
+modprobe -r ix_usb_can 2>/dev/null || true
+
 if ! modprobe ix_usb_can 2>/dev/null; then
     if [ "$(mokutil --sb-state 2>/dev/null)" = "SecureBoot enabled" ] &&
        [ -f "$MOK" ] && ! mokutil --test-key "$MOK" 2>/dev/null | grep -q "already enrolled"; then
@@ -91,6 +137,26 @@ MSG
     echo "modprobe ix_usb_can failed. Check: dmesg | tail -20" >&2
     exit 1
 fi
+
+# "Firmware update recommended" is printed only when the CL2 check fails, which
+# is exactly the bug patched above - so it doubles as a check that the running
+# module is the patched one.
+# "Firmware update recommended" is printed only when the CL2 check fails, which
+# is the bug patched above - so its absence confirms the running module is the
+# patched one. Look only at THIS probe: earlier ones are still in the ring
+# buffer and matching them reports a failure that has already been fixed.
+sleep 1
+# Walk the log in order and remember whether the MOST RECENT probe warned.
+# (A line-range match on the probe text is too fragile to trust here.)
+LAYER=$(dmesg 2>/dev/null | awk '
+    /ix_usb_can.*Firmware version/ { warned = 0; seen = 1 }
+    /ix_usb_can.*Firmware update recommended/ { warned = 1 }
+    END { if (!seen) print "unknown"; else print warned ? "CL1" : "CL2" }')
+case "$LAYER" in
+CL2) echo "driver detects CL2 firmware (patched behaviour)" ;;
+CL1) echo "driver treats the device as legacy CL1 (upstream behaviour)" ;;
+*)   echo "could not determine the communication layer from dmesg" >&2 ;;
+esac
 
 # udev takes a moment to rename the new netdev.
 for _ in $(seq 20); do

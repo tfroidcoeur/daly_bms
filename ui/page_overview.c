@@ -40,12 +40,39 @@
 #define INST_TOP       14
 #define BAR_W          50
 #define BAR_H         170
-#define SOC_X         (COL0_CX - BAR_W / 2)
+
+/*
+ * The two bars sit out at the edges of the glass rather than centred in their
+ * thirds - they are the instruments you read from across a shed, and pushing
+ * them apart leaves the dial room to breathe. This gap is measured from the
+ * panel edge, so it has to lose the page's own padding.
+ */
+#define BAR_EDGE_GAP   20
+#define BAR_INSET     (BAR_EDGE_GAP - UI_PAGE_PAD)
+#define SOC_X          BAR_INSET
+#define VOLT_X        (UI_CONTENT_W - BAR_INSET - BAR_W)
+
 #define GAUGE_SIZE    186
 #define GAUGE_X       (COL1_CX - GAUGE_SIZE / 2)
-#define VOLT_X        (COL2_CX - BAR_W / 2)
 #define VALUE_Y       190
 #define POWER_Y       214
+
+/*
+ * The outer readings follow their bars rather than their old columns, so each
+ * number still sits under the thing it measures. Centred on the bar, and as
+ * wide as the content edge allows - which is exactly seven XL characters.
+ */
+#define SOC_CX        (SOC_X + BAR_W / 2)
+#define VOLT_CX       (VOLT_X + BAR_W / 2)
+#define OUTER_VAL_W   (2 * SOC_CX)
+#define OUTER_VAL_X(cx)  ((cx) - OUTER_VAL_W / 2)
+
+UI_STATIC_ASSERT(sizeof "100.0 %" - 1 <= OUTER_VAL_W / UI_FONT_XL_W,
+                 overview_soc_fits);
+UI_STATIC_ASSERT(sizeof "87.60 V" - 1 <= OUTER_VAL_W / UI_FONT_XL_W,
+                 overview_volt_fits);
+UI_STATIC_ASSERT(OUTER_VAL_X(VOLT_CX) + OUTER_VAL_W <= UI_CONTENT_W,
+                 overview_volt_val_onscreen);
 
 /*
  * Vertical placement of the dial.
@@ -78,7 +105,7 @@ lv_obj_t *ui_page_overview_create(lv_obj_t *page)
     g_soc_bar = ui_bar(page, BAR_W, BAR_H);        /* h > w = fills upward */
     lv_obj_align(g_soc_bar, LV_ALIGN_TOP_LEFT, SOC_X, INST_TOP);
     g_soc_val = ui_label_centered(page, UI_FONT_XL, "--.- %",
-                                  COL0_CX - COL_W / 2, VALUE_Y, COL_W);
+                                  OUTER_VAL_X(SOC_CX), VALUE_Y, OUTER_VAL_W);
 
     /* Centred on the same column, and optically levelled with the bars. */
     g_gauge = ui_gauge(page, GAUGE_SIZE, UI_GAUGE_MAX_A, &g_needle);
@@ -92,7 +119,7 @@ lv_obj_t *ui_page_overview_create(lv_obj_t *page)
      * and it should catch the eye the same way. Aligned to the page centre,
      * which is the gauge column's centre.
      */
-    g_chg_lbl = ui_label(page, UI_FONT_M, "CHARGING");
+    g_chg_lbl = ui_label(page, UI_FONT_M_B, "CHARGING");
     ui_set_emphasis(g_chg_lbl, UI_EMPH_BADGE);
     lv_obj_align(g_chg_lbl, LV_ALIGN_TOP_MID, 0, CHG_Y);
     lv_obj_add_flag(g_chg_lbl, LV_OBJ_FLAG_HIDDEN);
@@ -101,20 +128,20 @@ lv_obj_t *ui_page_overview_create(lv_obj_t *page)
                                   COL1_CX - COL_W / 2, VALUE_Y, COL_W);
     /* Power belongs with the current it is derived from, not off in the status
      * bar - reading amps and watts together is how you judge a load. */
-    g_watt_val = ui_label_centered(page, UI_FONT_L, "-- W",
+    g_watt_val = ui_label_centered(page, UI_FONT_L_B, "-- W",
                                    COL1_CX - COL_W / 2, POWER_Y, COL_W);
 
     g_volt_bar = ui_bar(page, BAR_W, BAR_H);
     lv_obj_align(g_volt_bar, LV_ALIGN_TOP_LEFT, VOLT_X, INST_TOP);
     g_volt_val = ui_label_centered(page, UI_FONT_XL, "--.-- V",
-                                   COL2_CX - COL_W / 2, VALUE_Y, COL_W);
+                                   OUTER_VAL_X(VOLT_CX), VALUE_Y, OUTER_VAL_W);
 
     lv_obj_t *rule = ui_rule(page);
     lv_obj_align(rule, LV_ALIGN_TOP_LEFT, 0, FOOT_RULE_Y);
 
-    g_foot[0] = ui_label(page, UI_FONT_S, "");
+    g_foot[0] = ui_label(page, UI_FONT_S_B, "");
     lv_obj_align(g_foot[0], LV_ALIGN_TOP_LEFT, 0, FOOT_LINE1_Y);
-    g_foot[1] = ui_label(page, UI_FONT_S, "");
+    g_foot[1] = ui_label(page, UI_FONT_S_B, "");
     lv_obj_align(g_foot[1], LV_ALIGN_TOP_LEFT, 0, FOOT_LINE2_Y);
     for (int i = 0; i < FOOT_LINES; i++) {
         ui_set_emphasis(g_foot[i], UI_EMPH_PLAIN);

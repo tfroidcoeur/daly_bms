@@ -19,7 +19,7 @@
 #define FIELD_PITCH  54
 
 /*
- * Character budget per column, at UI_FONT_L's 9 px cell. The font is
+ * Character budget per column, at UI_FONT_L_B's 9 px cell. The font is
  * monospaced, so this is exact rather than a guess: every value string below
  * is written to fit, and the two numbers are the only thing to re-check if a
  * column ever moves.
@@ -55,7 +55,7 @@ lv_obj_t *ui_page_pack_create(lv_obj_t *page, uint8_t slot)
     char title[24];
 
     snprintf(title, sizeof title, "PACK %u  (0x%02X)", slot + 1, slot + 1);
-    lv_obj_t *t = ui_label(page, UI_FONT_L, title);
+    lv_obj_t *t = ui_label(page, UI_FONT_L_B, title);
     lv_obj_align(t, LV_ALIGN_TOP_LEFT, 0, 0);
 
     v->nodata = ui_label(page, UI_FONT_XXL, "NO DATA");
@@ -87,7 +87,7 @@ lv_obj_t *ui_page_pack_create(lv_obj_t *page, uint8_t slot)
 
     /* Left-aligned to the field columns: starting at COL2_X ran the text off
      * the right edge of the panel. */
-    v->foot = ui_label(v->body, UI_FONT_S, "");
+    v->foot = ui_label(v->body, UI_FONT_S_B, "");
     lv_obj_align(v->foot, LV_ALIGN_BOTTOM_LEFT, COL1_X, -4);
 
     return page;
