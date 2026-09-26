@@ -48,8 +48,12 @@
  * half of it: a winch pull and a charge current of the same size land in the
  * same place. Direction is shown by the CHARGING legend inside the dial and by
  * the status line, not by which way the needle leans.
+ *
+ * Pick a full scale the winch actually reaches. At 1000 A a 45 A standing load
+ * used 4 % of the sweep and the whole dial was dead space; the tick divisions
+ * below assume this number divides evenly by five.
  */
-#define UI_GAUGE_MAX_A 1000
+#define UI_GAUGE_MAX_A 350
 
 /*
  * Per-cell working range in millivolts: LiFePO4, empty to full. Both the cell

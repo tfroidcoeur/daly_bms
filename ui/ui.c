@@ -77,16 +77,14 @@ lv_obj_t *ui_bar(lv_obj_t *parent, int32_t w, int32_t h)
  * against a scale without crowding a one-bit dial with numbers.
  */
 /*
- * Fill band: how far inside the object edge it sits, and how thick it is.
+ * Fill band: the rim itself, drawn over the scale's own arc and ticks.
  *
- * It has to clear the scale labels, which sit inside the ticks and so occupy a
- * ring of their own - a band placed just under the ticks buries "0", "250" and
- * "500" while leaving the unfilled half readable, which is the worst of both.
- * At a 93 px radius the labels reach in to about 66 px, so the band runs from
- * 52 to 61 and the needle tip (55 % = 51 px) stops just inside it.
+ * Wide enough to swallow the ring (3 px) and the major ticks (9 px), so the
+ * filled part of the dial reads as one solid sweep and the ticks only show
+ * against white where it has not reached. It stops short of the labels, which
+ * sit further in.
  */
-#define GAUGE_FILL_INSET 32
-#define GAUGE_FILL_W      9
+#define GAUGE_FILL_W     12
 
 lv_obj_t *ui_gauge(lv_obj_t *parent, int32_t size, int32_t max,
                    lv_obj_t **needle_out, lv_obj_t **fill_out)
@@ -95,8 +93,14 @@ lv_obj_t *ui_gauge(lv_obj_t *parent, int32_t size, int32_t max,
     lv_obj_set_size(scale, size, size);
     lv_scale_set_mode(scale, LV_SCALE_MODE_ROUND_INNER);
     lv_scale_set_range(scale, 0, max);
-    lv_scale_set_total_tick_count(scale, 13);
-    lv_scale_set_major_tick_every(scale, 3);
+    /*
+     * 15 ticks with a major every 2: labels every 50 A and a minor tick at each
+     * 25 A between them, for a 350 A scale. Tick positions are derived from the
+     * count rather than the value, so these two numbers and UI_GAUGE_MAX_A have
+     * to be chosen together - they are what puts labels on whole numbers.
+     */
+    lv_scale_set_total_tick_count(scale, 15);
+    lv_scale_set_major_tick_every(scale, 2);
     lv_scale_set_label_show(scale, true);
     lv_scale_set_angle_range(scale, 240);
     lv_scale_set_rotation(scale, 150);
@@ -120,16 +124,13 @@ lv_obj_t *ui_gauge(lv_obj_t *parent, int32_t size, int32_t max,
     lv_obj_set_style_pad_all(scale, 2, LV_PART_INDICATOR);
 
     /*
-     * A band filled from zero to the value, sitting just inside the tick ring.
-     * On a panel with no colour, a swept area is read at a glance from across a
-     * shed where a needle's angle has to be worked out - the needle stays for
-     * the precise reading.
-     *
-     * GAUGE_FILL_INSET clears the arc (3 px) and the major ticks (9 px) with a
-     * little air, so the band never touches them.
+     * A band filled from zero to the value, wrapped around the outside of the
+     * dial. On a panel with no colour, a swept area is read at a glance from
+     * across a shed where a needle's angle has to be worked out - the needle
+     * stays for the precise reading.
      */
     lv_obj_t *fill = lv_arc_create(scale);
-    lv_obj_set_size(fill, size - 2 * GAUGE_FILL_INSET, size - 2 * GAUGE_FILL_INSET);
+    lv_obj_set_size(fill, size, size);
     lv_obj_center(fill);
     lv_arc_set_rotation(fill, 150);          /* matches the scale */
     lv_arc_set_bg_angles(fill, 0, 240);      /* matches the scale's sweep */
@@ -171,6 +172,16 @@ lv_obj_t *ui_gauge(lv_obj_t *parent, int32_t size, int32_t max,
 void ui_gauge_set(lv_obj_t *gauge, lv_obj_t *needle, lv_obj_t *fill,
                   int32_t value)
 {
+    /*
+     * Clamp. lv_arc_set_value() does this itself, but the needle does not - an
+     * over-range reading sends it past the end of the scale, pointing at empty
+     * dial as if that meant something. Both indicators peg at full scale
+     * instead, and the figure underneath carries the real number.
+     */
+    const int32_t max = lv_arc_get_max_value(fill);
+    if (value < 0)   value = 0;
+    if (value > max) value = max;
+
     lv_arc_set_value(fill, value);
 
     /*
