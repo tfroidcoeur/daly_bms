@@ -144,9 +144,15 @@ next place to look, and the only place that separates the causes.
 
 ## 5. Validate the decode table - the actual point of this session
 
-**The field layouts in [daly-can-protocol.md](daly-can-protocol.md) are community
-reverse-engineering, not a Daly datasheet.** Nothing on the display is
-trustworthy until they are checked against a pack.
+[daly-can-protocol.md](daly-can-protocol.md) now carries **Daly's own protocol
+document V1.0** alongside the community reverse-engineering this project was
+built from. They agree on `0x90`, `0x91`, `0x92`, `0x93` and `0x97`, which is
+strong evidence but not the same thing as having seen it work. **They disagree in
+two places, and this session is where a real pack settles both** - see
+[the two open questions](#the-two-open-questions) below.
+
+Nothing on the display is trustworthy until the layouts are checked against a
+pack.
 
 Check them against **physical reality first, and Daly's app second**. A
 multimeter and a pack you can look at validate more than a second piece of
@@ -176,7 +182,45 @@ shuffled means the ordering within a frame is wrong.
 **Cell count gates everything.** The decoder refuses to read cells until `0x94`
 has said how many there are, so a wrong cell-count field gives *no* cell data
 rather than wrong cell data. Voltage and current arriving but no cells ever
-appearing points at `0x94`, not `0x95`.
+appearing points at `0x94` - or at the frame numbering, which is the next section.
+
+### The two open questions
+
+Both are answered by looking, not by reasoning, and both take seconds.
+
+**1. Does `0x95` number its frames from 0 or from 1?** Daly's document says 0, the
+community layout says 1, and the decoder works it out from the traffic rather than
+assuming. In the `--raw` output, read byte 0 of the first `0x95` reply after a
+request:
+
+```
+    4894  RX 18954001  [8] 01 0C FD 0D 03 0D 04 00   pack 1  0x95 cell volts    frame 1: 3325 3331 3332 mV
+                           ^^ this byte
+```
+
+A burst that starts at `00` follows the document; one that starts at `01` follows
+the community layout. Either is handled, so **this is a note to make, not a fault
+to fix** - but note it, because it tells you how long the cells take to appear. A
+1-based pack spends its first burst being identified, so cells show up on the
+second round, about a second later than the other fields.
+
+If cells never appear at all and `0x94` is reporting the right count, the frame
+numbering is where to look: the raw log shows exactly which byte 0 values arrived.
+
+**2. Does `0x94` put a cycle count in bytes 5-6, or are they reserved?** Daly's
+document says reserved. Read the tail of a `0x94` reply:
+
+```
+     731  RX 18944001  [8] 18 04 00 01 00 00 85 00   pack 1  0x94 status        24 cells  4 sensors  b5-7 00 85 00
+                                          ^^ ^^ ^^
+```
+
+That pack fills them: `0x0085` is 133, and its `CAPACITY` field will read
+`240.0 Ah 133 cy`. Check the number against Daly's app before believing it - a
+plausible-looking value could equally be some other field entirely.
+
+All three bytes zero means the document is right for this firmware, and
+`CAPACITY` will show Ah alone rather than inventing a cycle count.
 
 ### Then put a load on it
 
@@ -186,10 +230,16 @@ backwards during a pull, which is the one moment it has to be right.
 
 ### What cannot be checked this way
 
-`0x97` balance and `0x98` faults print as raw bytes with no interpretation, on
-purpose: their bit meanings have never been confirmed and naming them would be
-inventing detail. Cycle count and SoC have no physical referent either - those
-are the fields where Daly's own app is genuinely the only cross-check.
+`0x98` faults print as raw bytes with no interpretation. The bit meanings are
+now fully specified - the table is in
+[daly-can-protocol.md](daly-can-protocol.md#0x98---failure--alarm-flags) - but
+none has yet been seen set on hardware, so naming one on screen would still be
+claiming more than we know. If you can provoke a real alarm (a cell pulled low, a
+charge attempt below zero), capture the bytes: that is what turns the table into
+something the display can say out loud.
+
+SoC has no physical referent either, so Daly's own app is genuinely the only
+cross-check for it.
 
 ### When something is wrong
 

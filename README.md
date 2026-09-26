@@ -107,8 +107,9 @@ docs/hardware/  board spec, transceiver, Daly protocol, wiring plan
 
 [docs/core-design.md](docs/core-design.md) is the reasoning behind `core/`: why
 it has no platform dependencies, how the four modules relate, the multi-frame
-commit rule, and which numbers are still unverified guesses about Daly's
-protocol.
+commit rule, how the decoder works out for itself whether a pack numbers its
+frames from 0 or from 1, and which numbers are still unverified against real
+hardware.
 
 ## Building and running on the laptop
 

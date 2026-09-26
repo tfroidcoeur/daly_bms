@@ -130,10 +130,10 @@ seven weeks.
 This is the most important invariant in the decoder.
 
 Commands `0x95` (cell voltages, 3 per frame) and `0x96` (temperatures, 7 per
-frame) answer with a burst of frames, each tagged with a 1-based index. They
-accumulate into `daly_rx_scratch_t` — a shadow copy plus a bitmap of which
-indices have arrived — and are copied into the visible `cell_mv[]` / `temp_c[]`
-only once every expected index is present.
+frame) answer with a burst of frames, each tagged with its place in the burst.
+They accumulate into `daly_rx_scratch_t` — a shadow copy plus a bitmap of which
+positions have arrived — and are copied into the visible `cell_mv[]` / `temp_c[]`
+only once every expected position is present.
 
 ```
 frame 3 of 8 arrives  ->  written to scratch, bit 3 set, nothing published
@@ -173,6 +173,39 @@ For the same reason `bms_model_age()` clears both bitmaps when a pack drops
 offline: otherwise the burst that resumes after an outage can complete the one
 the outage interrupted, publishing cells from both sides of the gap as a single
 coherent reading.
+
+### Where the frame numbering comes from
+
+The two protocol sources disagree about byte 0. Daly's own document V1.0 says the
+frame number starts at 0; the community layout this project was built from, and by
+report most firmware in service, says 1. Nothing inside a frame declares which.
+
+This is not a field where a wrong guess reads slightly off. Assume 1 against a
+zero-based pack and the first frame of every burst is out of range and discarded,
+so the bitmap never completes and **no cell data is ever published at all**.
+Assume 0 and the same happens at the far end of the burst.
+
+So `frame_position()` in `core/daly_proto.c` decides nothing and learns instead,
+per pack and per command, from the two observations that only one scheme can
+produce:
+
+```
+byte 0 == 0             only a 0-based burst sends this      -> base 0
+byte 0 == frame count   only a 1-based burst gets this far    -> base 1
+anything between        consistent with both                  -> discarded
+```
+
+Discarding while undecided is the whole point: a frame that cannot be placed must
+not be stored anywhere. The cost is bounded and one-off — a 0-based pack settles
+it on the first frame of its first burst and loses nothing, a 1-based pack settles
+it on the last and shows its cells one round later. The base is latched for the
+life of the pack, including across an offline period, because it is a property of
+the firmware rather than of the burst; only the geometry changing resets the
+bitmaps, and even then not the base.
+
+`DALY_FRAME_BASE_UNKNOWN` is deliberately the zero value of its enum. Packs are
+`memset` to zero in several places, and "not yet known" is the only default that
+cannot publish data into the wrong slots.
 
 ## Liveness and correctness are separate
 
@@ -239,10 +272,24 @@ says a fuse has blown.
 
 ## What is not verified
 
-**The field layouts this whole module decodes are community reverse-engineering,
-not a Daly datasheet.** `docs/hardware/daly-can-protocol.md` says so; this says
-it again because `core/` is where a wrong offset turns into a confident number
-on a screen.
+`docs/hardware/daly-can-protocol.md` now sets **Daly's own "CAN Communications
+Protocol V1.0"** against the community reverse-engineering this module was built
+from. They agree byte for byte on `0x90`, `0x91`, `0x92`, `0x93` and `0x97`,
+which is good evidence and not the same as having seen it work. This section says
+it again because `core/` is where a wrong offset turns into a confident number on
+a screen.
+
+Where the two sources disagree, the code refuses to choose:
+
+| | Disagreement | How it is handled |
+|---|---|---|
+| `0x95` / `0x96` byte 0 | numbered from 0 or from 1 | learned from the traffic, above |
+| `0x94` bytes 5-6 | reserved, or a cycle count | read, with `cycles_valid` saying whether anything was there |
+
+`cycles_valid` exists so the panel can stay silent rather than print a zero that
+reads as a brand new battery. It is also the cheapest possible instrument for the
+question: whether the pack page's `CAPACITY` field shows a cycle count *is* the
+answer for that firmware.
 
 Nothing here has been run against a real BMS. Before trusting any value on the
 panel, build the firmware with `CONFIG_BMS_RAW_LOGGER` set — see
