@@ -34,7 +34,8 @@ Delivery estimate for the display board: **19-24 September 2026**.
 
 1. **The screen is not a touchscreen.** Waveshare's own documentation states
    *Touch Panel: None*. It is a 4.2" *reflective* LCD, not a capacitive touch
-   panel. Navigation uses the onboard **KEY button (GPIO18)**.
+   panel. Navigation uses two capacitive pads on GPIO1 and GPIO2, with the
+   onboard **KEY button (GPIO18)** still working alongside them.
    (The Zephyr board documentation mentions "capacitive touch" — that refers to
    the ESP32-S3 SoC's built-in touch-sensor peripheral, not a panel on this board.)
 2. **The ESP32-S3 has exactly one TWAI (CAN) controller.** Three BMS units

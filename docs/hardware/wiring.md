@@ -38,22 +38,34 @@ header is power, USB, UART0, I2C, or an already-committed pin.
 
 ![P1 header](img/p1-header.png)
 
-TWAI TX and RX route through the ESP32 GPIO matrix, so any of the three works.
-The choice below keeps CAN on two adjacent pins in the same column as the 3V3 and
-GND pins, and leaves GPIO17 free for later.
+Touch gets first pick and CAN takes what is left. The constraint only runs one
+way: the touch channels are wired to GPIO1..GPIO14 in silicon, while TWAI routes
+through the GPIO matrix and works on any pin. With the display behind a sealed
+front, two capacitive pads replace the onboard KEY button, and that claims both
+low-numbered pins.
 
 | Signal | P1 pin | GPIO |
 |---|---|---|
-| CAN TX -> transceiver `D` / `CTX` | **7** | **GPIO1** |
-| CAN RX <- transceiver `R` / `CRX` | **9** | **GPIO2** |
+| CAN TX -> transceiver `D` / `CTX` | **13** | **GPIO17** |
+| CAN RX <- transceiver `R` / `CRX` | **11** | **GPIO3** |
 | 3V3 -> transceiver `Vcc` | **1** | - |
 | GND -> transceiver `GND` | **3** | - |
+| touch pad: next page | **7** | **GPIO1** |
+| touch pad: cell detail | **9** | **GPIO2** |
 
-Pins 1, 3, 7, 9 are all in the odd-numbered column, so the transceiver connects
-with a single 4-way flying lead down one side of the header.
+That uses all four usable header pins, with nothing spare.
 
-Do not use GPIO0 (pin 5, BOOT strap), GPIO3 (pin 11, JTAG source select strap) or
-GPIO18 (pin 15, KEY button) for CAN. GPIO17 (pin 13) is the spare.
+GPIO3 is nominally the JTAG source-select strap, but that function only exists
+once the `JTAG_SEL_ENABLE` eFuse is burned, which it is not from the factory. It
+carries **RX rather than TX** deliberately, so the pin sits at a defined level
+during boot: the transceiver's `R` output idles high (recessive).
+
+Do not use GPIO0 (pin 5, BOOT strap) or GPIO18 (pin 15, KEY button).
+
+**`D`/`CTX` is an input to the transceiver and takes our TX; `R`/`CRX` is its
+output and feeds our RX.** Wired the other way round, two push-pull drivers end
+up on one net - which during bring-up destroyed a transceiver and cost most of
+an evening to find, because every symptom pointed at the bus instead.
 
 For the full P1 pinout see
 [esp32-s3-rlcd-4.2.md](esp32-s3-rlcd-4.2.md#the-2-x-8-expansion-header-p1).

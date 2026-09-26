@@ -32,7 +32,7 @@ Sold on Amazon under the reseller brand **UeeKKoo**, ASIN `B0GLPHR1ZX`.
 | Colour | Monochrome, 1 bit per pixel |
 | Controller | **ST7305 / ST7306** (Sitronix), 4-wire SPI, write-only |
 | Interface | SPI up to ~10 MHz (`mipi-max-frequency = 10000000` in the Zephyr dts) |
-| Touch | **None** |
+| Touch | **None** - the pads this project uses are copper tape on GPIO1/GPIO2, not part of the panel |
 
 Panel window geometry, from the Zephyr devicetree: `width = 312`, `height = 400`,
 `start-column = 204`, `inversion-on`. The visible area is 300 x 400 portrait; the
@@ -108,15 +108,21 @@ attached, so it also defines which GPIOs are actually reachable.
 | 13 | **GPIO17** | | 14 | ESP32_SDA (GPIO13) |
 | 15 | GPIO18 (KEY button) | | 16 | ESP32_SCL (GPIO14) |
 
-**Freely usable GPIOs on the header: GPIO1, GPIO2, GPIO17.** GPIO3 is technically
-free but is a strapping pin (JTAG source select), so it is a last resort. GPIO0 is
+**Freely usable GPIOs on the header: GPIO1, GPIO2, GPIO17**, plus GPIO3 at a
+pinch - it is the JTAG source-select strap, but that function only exists once
+the `JTAG_SEL_ENABLE` eFuse is burned, which it is not from the factory. GPIO0 is
 the BOOT strap and GPIO18 already drives the KEY button.
+
+All four are now in use: GPIO1 and GPIO2 are capacitive touch pads (the touch
+channels are tied to GPIO1..GPIO14 in silicon, so they cannot go anywhere else),
+and CAN takes GPIO17 and GPIO3, TWAI being free to route anywhere through the
+GPIO matrix.
 
 The other unused GPIOs on the SoC (6, 7, 42, 47, 48) are **not brought out** - they
 terminate at the module and are unreachable without soldering to the module itself.
 
-This board therefore has exactly three usable expansion pins. CAN takes two of
-them; GPIO17 stays free.
+This board therefore has exactly four usable expansion pins, and the project
+uses all four: two for CAN and two for touch. Nothing is spare.
 
 ## Development frameworks
 

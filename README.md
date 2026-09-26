@@ -81,8 +81,11 @@ budget and checks the widest possible value against it with `UI_STATIC_ASSERT`,
 so a reworded string fails the build instead of quietly overlapping its
 neighbour.
 
-The panel has **no touch**. Navigation is the onboard KEY button: a short press
-cycles pages, a long press (>800 ms) opens the cell detail for the current pack.
+The panel has no touch layer of its own. Navigation is **two capacitive pads** -
+copper tape behind the front panel, read by the SoC's touch peripheral, so the
+enclosure needs no opening. One cycles pages, the other opens and closes the cell
+detail. The onboard KEY button still works too, with a short press and an 800 ms
+hold, which keeps the board usable on the bench before the pads are fitted.
 
 A pack that stops answering is drawn as `NO DATA` and drops out of the bank
 totals - it never shows stale numbers that look current.
@@ -131,8 +134,9 @@ Then, in two terminals:
 ./build/sim vcan0
 ```
 
-Keys in the simulator window: `n` = KEY short press (next page), `N` = long press
-(cell detail), `q` = quit.
+Keys in the simulator window: `n` = next page, `N` = cell detail, `q` = quit.
+On the device those are the two touch pads, or a short press and an 800 ms hold
+of the KEY button - `ui_input()` does not care which produced the event.
 
 The simulator renders at 1 bit per pixel in the panel's own colours, so it is an
 honest preview rather than a flattering mockup.
@@ -388,7 +392,8 @@ poll schedule with a two-second rebuild instead of a flash cycle - see
 ## Wiring, in one paragraph
 
 One SN65HVD230 on the 2x8 expansion header: **3V3 to P1 pin 1, GND to pin 3, CAN
-TX to pin 7 (GPIO1), CAN RX to pin 9 (GPIO2)**. CANH/CANL as a twisted pair to
+TX to pin 13 (GPIO17), CAN RX to pin 11 (GPIO3)** - pins 7 and 9 belong to the
+touch pads. CANH/CANL as a twisted pair to
 the three Daly units, with a ground wire alongside. 250 kbit/s, 29-bit extended
 frames, and **exactly two 120 ohm terminators at the two physical ends of the
 bus** - these breakouts ship with one fitted, so lift it on every node that is

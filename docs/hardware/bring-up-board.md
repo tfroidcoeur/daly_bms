@@ -108,14 +108,21 @@ I (xxx) twai: bus recovered; running again
 That loop is the recovery path working correctly. It is noisy while you are
 debugging the panel; ignore it until step 7.
 
-## 6. The button
+## 6. The controls
 
-One KEY press should cycle Overview -> Pack 1 -> Pack 2 -> Pack 3 -> Overview.
-A hold over 800 ms opens the cell detail for the current pack. Every pack will
-read `NO DATA` - nothing is on the bus yet. That is the correct display, and it
-confirms the whole chain: button, LVGL lock, page switch, repaint.
+One KEY press should cycle Overview -> Pack 1 -> Pack 2 -> Pack 3 -> Overview,
+and a hold over 800 ms should open the cell detail for the current pack. Every
+pack will read `NO DATA` - nothing is on the bus yet. That is the correct
+display, and it confirms the whole chain: input, LVGL lock, page switch, repaint.
 
-If a press does nothing, the press is being dropped rather than misread: the
+The two capacitive pads do the same two things, one each, and need no hold. If
+they do nothing, build the **touch monitor** mode (menuconfig -> Daly BMS
+monitor -> Build mode) rather than guessing: it prints each pad's benchmark,
+smoothed reading and margin, which separates a pad that is not wired from a
+threshold that is set too high. A benchmark pinned at 4194303 means the channel
+is not being sampled at all.
+
+If a KEY press does nothing, the press is being dropped rather than misread: the
 latch in `main.c` retries every pass until the LVGL lock is free, so a dead
 button means GPIO18 is not reading, not that the UI is stuck.
 
@@ -127,8 +134,12 @@ Wire the SN65HVD230 to the 2x8 header (P1):
 |---|---|---|
 | 1 | 3V3 | Vcc - **3.3 V, never 5 V** |
 | 3 | GND | GND, and Rs to GND for high-speed mode |
-| 7 | GPIO1 | D (driver input) |
-| 9 | GPIO2 | R (receiver output) |
+| **13** | **GPIO17** | **D / CTX** (driver input - the pin we drive) |
+| **11** | **GPIO3** | **R / CRX** (receiver output - the pin we read) |
+
+Pins 7 and 9 are the touch pads, not CAN. And `D` is an input while `R` is an
+output: swap them and two push-pull drivers meet on one net, which is how the
+first transceiver died during bring-up.
 
 Termination and the rest of the bus: [wiring.md](wiring.md). The bus-off spam
 from step 5 should stop the moment something ACKs.
