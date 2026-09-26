@@ -96,7 +96,7 @@ UI_STATIC_ASSERT(OUTER_VAL_X(VOLT_CX) + OUTER_VAL_W <= UI_CONTENT_W,
 #define FOOT_LINES      2
 
 static lv_obj_t *g_soc_bar, *g_soc_val;
-static lv_obj_t *g_gauge, *g_needle, *g_amp_val, *g_watt_val, *g_chg_lbl;
+static lv_obj_t *g_gauge, *g_needle, *g_fill, *g_amp_val, *g_watt_val, *g_chg_lbl;
 static lv_obj_t *g_volt_bar, *g_volt_val;
 static lv_obj_t *g_foot[FOOT_LINES];
 
@@ -108,7 +108,7 @@ lv_obj_t *ui_page_overview_create(lv_obj_t *page)
                                   OUTER_VAL_X(SOC_CX), VALUE_Y, OUTER_VAL_W);
 
     /* Centred on the same column, and optically levelled with the bars. */
-    g_gauge = ui_gauge(page, GAUGE_SIZE, UI_GAUGE_MAX_A, &g_needle);
+    g_gauge = ui_gauge(page, GAUGE_SIZE, UI_GAUGE_MAX_A, &g_needle, &g_fill);
     lv_obj_align(g_gauge, LV_ALIGN_TOP_LEFT, GAUGE_X, GAUGE_Y);
     /*
      * The dial reads magnitude, so direction has to be said in words. Only
@@ -178,7 +178,7 @@ void ui_page_overview_update(const system_model_t *m)
         lv_obj_add_flag(g_chg_lbl, LV_OBJ_FLAG_HIDDEN);
         lv_bar_set_value(g_soc_bar, 0, LV_ANIM_OFF);
         lv_bar_set_value(g_volt_bar, 0, LV_ANIM_OFF);
-        ui_gauge_set(g_gauge, g_needle, 0);
+        ui_gauge_set(g_gauge, g_needle, g_fill, 0);
     } else {
         ui_fmt_soc(buf, sizeof buf, s.mean_soc_pct_x10);
         ui_set_text(g_soc_val, buf);
@@ -192,7 +192,7 @@ void ui_page_overview_update(const system_model_t *m)
 
         ui_fmt_amps(buf, sizeof buf, abs_ma);
         ui_set_text(g_amp_val, buf);
-        ui_gauge_set(g_gauge, g_needle, abs_ma / 1000);
+        ui_gauge_set(g_gauge, g_needle, g_fill, abs_ma / 1000);
 
         ui_fmt_watts(buf, sizeof buf, abs_w);
         ui_set_text(g_watt_val, buf);

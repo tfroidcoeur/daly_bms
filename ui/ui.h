@@ -126,12 +126,14 @@ lv_obj_t *ui_label(lv_obj_t *parent, const lv_font_t *font, const char *text);
 lv_obj_t *ui_bar(lv_obj_t *parent, int32_t w, int32_t h);
 
 /*
- * An arc gauge reading 0..`max` with a needle, for bank current magnitude.
- * `needle_out` receives the needle line; pass both to ui_gauge_set().
+ * An arc gauge reading 0..`max`, with a filled band from zero to the value and
+ * a needle at it. `needle_out` and `fill_out` receive the two moving parts;
+ * pass all three to ui_gauge_set().
  */
 lv_obj_t *ui_gauge(lv_obj_t *parent, int32_t size, int32_t max,
-                   lv_obj_t **needle_out);
-void      ui_gauge_set(lv_obj_t *gauge, lv_obj_t *needle, int32_t value);
+                   lv_obj_t **needle_out, lv_obj_t **fill_out);
+void      ui_gauge_set(lv_obj_t *gauge, lv_obj_t *needle, lv_obj_t *fill,
+                       int32_t value);
 
 /* A caption above a value, the densest readable pairing on this panel.
  * Returns the value label; the caption is positioned 14 px above it. */

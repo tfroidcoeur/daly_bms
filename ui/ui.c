@@ -76,8 +76,20 @@ lv_obj_t *ui_bar(lv_obj_t *parent, int32_t w, int32_t h)
  * quarter, a half, three quarters and full scale - enough to read the needle
  * against a scale without crowding a one-bit dial with numbers.
  */
+/*
+ * Fill band: how far inside the object edge it sits, and how thick it is.
+ *
+ * It has to clear the scale labels, which sit inside the ticks and so occupy a
+ * ring of their own - a band placed just under the ticks buries "0", "250" and
+ * "500" while leaving the unfilled half readable, which is the worst of both.
+ * At a 93 px radius the labels reach in to about 66 px, so the band runs from
+ * 52 to 61 and the needle tip (55 % = 51 px) stops just inside it.
+ */
+#define GAUGE_FILL_INSET 32
+#define GAUGE_FILL_W      9
+
 lv_obj_t *ui_gauge(lv_obj_t *parent, int32_t size, int32_t max,
-                   lv_obj_t **needle_out)
+                   lv_obj_t **needle_out, lv_obj_t **fill_out)
 {
     lv_obj_t *scale = lv_scale_create(parent);
     lv_obj_set_size(scale, size, size);
@@ -107,6 +119,34 @@ lv_obj_t *ui_gauge(lv_obj_t *parent, int32_t size, int32_t max,
     lv_obj_set_style_text_color(scale, lv_color_black(), LV_PART_INDICATOR);
     lv_obj_set_style_pad_all(scale, 2, LV_PART_INDICATOR);
 
+    /*
+     * A band filled from zero to the value, sitting just inside the tick ring.
+     * On a panel with no colour, a swept area is read at a glance from across a
+     * shed where a needle's angle has to be worked out - the needle stays for
+     * the precise reading.
+     *
+     * GAUGE_FILL_INSET clears the arc (3 px) and the major ticks (9 px) with a
+     * little air, so the band never touches them.
+     */
+    lv_obj_t *fill = lv_arc_create(scale);
+    lv_obj_set_size(fill, size - 2 * GAUGE_FILL_INSET, size - 2 * GAUGE_FILL_INSET);
+    lv_obj_center(fill);
+    lv_arc_set_rotation(fill, 150);          /* matches the scale */
+    lv_arc_set_bg_angles(fill, 0, 240);      /* matches the scale's sweep */
+    lv_arc_set_range(fill, 0, max);
+    lv_arc_set_value(fill, 0);
+    lv_obj_clear_flag(fill, LV_OBJ_FLAG_CLICKABLE);
+
+    /* The scale already draws the outer ring, so the arc's own background is
+     * not wanted - only its indicator. */
+    lv_obj_set_style_arc_opa(fill, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(fill, lv_color_black(), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(fill, GAUGE_FILL_W, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_rounded(fill, false, LV_PART_INDICATOR);
+    /* No knob: this is an indicator, not a control. */
+    lv_obj_set_style_bg_opa(fill, LV_OPA_TRANSP, LV_PART_KNOB);
+    lv_obj_set_style_pad_all(fill, 0, LV_PART_KNOB);
+
     lv_obj_t *needle = lv_line_create(scale);
     lv_obj_set_style_line_width(needle, 4, 0);
     lv_obj_set_style_line_color(needle, lv_color_black(), 0);
@@ -124,18 +164,24 @@ lv_obj_t *ui_gauge(lv_obj_t *parent, int32_t size, int32_t max,
     lv_obj_clear_flag(hub, LV_OBJ_FLAG_SCROLLABLE);
 
     *needle_out = needle;
+    *fill_out   = fill;
     return scale;
 }
 
-void ui_gauge_set(lv_obj_t *gauge, lv_obj_t *needle, int32_t value)
+void ui_gauge_set(lv_obj_t *gauge, lv_obj_t *needle, lv_obj_t *fill,
+                  int32_t value)
 {
+    lv_arc_set_value(fill, value);
+
     /*
-     * The needle stops at 55 % of the radius, well inside the ring of scale
-     * labels. A full-length needle sits on top of whichever label it is nearest
-     * - and that is exactly the number you are trying to read it against.
+     * The needle stops short of the fill band. Two reasons: a full-length
+     * needle sits on top of whichever label it is nearest - exactly the number
+     * you are reading it against - and a tip that touches the band merges with
+     * it at small values, where the band is only a few pixels long. A visible
+     * gap keeps them legible as two separate marks.
      */
     const int32_t r = lv_obj_get_width(gauge) / 2;
-    lv_scale_set_line_needle_value(gauge, needle, r * 55 / 100, value);
+    lv_scale_set_line_needle_value(gauge, needle, r * 44 / 100, value);
 }
 
 lv_obj_t *ui_field(lv_obj_t *parent, const char *caption, int32_t x, int32_t y)
