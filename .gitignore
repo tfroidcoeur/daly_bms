@@ -13,3 +13,6 @@ port/esp32/sdkconfig.old
 port/esp32/managed_components/
 port/esp32/dependencies.lock
 .cache
+
+# Python bytecode from tools/
+__pycache__/
