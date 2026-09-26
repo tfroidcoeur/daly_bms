@@ -133,7 +133,17 @@ lv_display_t *board_display_init(void)
 #define LVGL_TASK_PRIO        2
 #define LVGL_TASK_CORE        1
 #define LVGL_TASK_MIN_DELAY_MS 5
-#define LVGL_TASK_MAX_DELAY_MS 500
+/*
+ * How long the LVGL task may sleep when it has nothing to do. This is the
+ * dominant term in how quickly a press appears on screen: the press is latched
+ * within 2 ms and the widgets are dirtied immediately, but nothing is drawn
+ * until this task next wakes. At 500 ms that felt broken.
+ *
+ * 30 ms costs about 33 wakeups a second of a task that immediately finds
+ * nothing to do - microseconds each - and bounds the input-to-ink delay at
+ * roughly this plus one repaint.
+ */
+#define LVGL_TASK_MAX_DELAY_MS 30
 
 static SemaphoreHandle_t g_lvgl_mux;
 
