@@ -145,26 +145,57 @@ next place to look, and the only place that separates the causes.
 ## 5. Validate the decode table - the actual point of this session
 
 **The field layouts in [daly-can-protocol.md](daly-can-protocol.md) are community
-reverse-engineering, not a Daly datasheet.** Run Daly's own app against the same
-pack and compare, field by field, against the annotated `--raw` output - the raw
-bytes and our reading of them sit on the same line, which is what makes the
-comparison quick.
+reverse-engineering, not a Daly datasheet.** Nothing on the display is
+trustworthy until they are checked against a pack.
 
-`0x97` balance and `0x98` faults print as bytes with no interpretation, on
-purpose: their bit meanings have never been confirmed, and naming them would be
-inventing detail.
+Check them against **physical reality first, and Daly's app second**. A
+multimeter and a pack you can look at validate more than a second piece of
+software does, because two decoders can share the same wrong assumption and
+agree with each other all day.
 
-The three most likely to be wrong, because all three are biased or ordered
-rather than plain:
+A single pack fresh from the factory answers on `0x01`, so packs 2 and 3 will
+read `NO DATA` throughout this step. That is correct, not a fault.
 
-| Check | Where | Symptom if wrong |
+### The five checks
+
+Each targets one assumption, and each fails distinctively:
+
+| Check | Against | If wrong |
 |---|---|---|
-| current, 30000 offset | `core/daly_proto.h:60` | reads ~3000 A at rest, or sign inverted |
-| temperature, 40 offset | `core/daly_proto.h:66` | reads ~-40 C or ~+40 C off |
-| `0x95` cell ordering | `core/daly_proto.c:67` | cell count right, individual values shuffled |
+| Pack voltage | a multimeter across the terminals | scaling - we assume 0.1 V units |
+| **Current at rest** | should be ~0 A with nothing connected | **~±3000 A means the 30000 offset is wrong** (`core/daly_proto.h:60`) |
+| **Temperature** | a room thermometer | **~40 C out either way means the 40 offset is wrong** (`core/daly_proto.h:66`) |
+| **Sum of the cell voltages** | should equal the measured pack voltage | `0x95` ordering, scaling and multi-frame reassembly, all in one number |
+| Cell count | the pack in front of you | `0x94` - and this one gates the others |
 
-Fix `core/daly_proto.c`, add a case to `tests/test_core.c` with the real bytes
-you captured, rebuild, re-check. **Do not move on until every number matches.**
+**The sum is the strongest single test.** Twenty-four cells at ~3.3 V adding up
+to the measured pack voltage means byte order, scaling, frame indexing and the
+commit rule are all correct together. A correct sum with individual cells
+shuffled means the ordering within a frame is wrong.
+
+**Cell count gates everything.** The decoder refuses to read cells until `0x94`
+has said how many there are, so a wrong cell-count field gives *no* cell data
+rather than wrong cell data. Voltage and current arriving but no cells ever
+appearing points at `0x94`, not `0x95`.
+
+### Then put a load on it
+
+Anything - a lamp, a small motor. **Current must go negative.** Positive is
+charging by our convention, and an inverted sign makes the winch page read
+backwards during a pull, which is the one moment it has to be right.
+
+### What cannot be checked this way
+
+`0x97` balance and `0x98` faults print as raw bytes with no interpretation, on
+purpose: their bit meanings have never been confirmed and naming them would be
+inventing detail. Cycle count and SoC have no physical referent either - those
+are the fields where Daly's own app is genuinely the only cross-check.
+
+### When something is wrong
+
+Fix `core/daly_proto.c`, then **add a case to `tests/test_core.c` using the real
+bytes you captured**, so the correction is pinned by a test rather than by
+memory. Rebuild, re-check. Do not move on until every number matches.
 
 ## 6. All three packs
 
