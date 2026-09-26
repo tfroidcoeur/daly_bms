@@ -53,7 +53,12 @@ extern const lv_font_t fixed_6x13b_2x;
 #define UI_FONT_S_W   6
 #define UI_FONT_S_H  13
 
-/* Cell advance of UI_FONT_XL. Emboldening widens the ink, not the advance. */
+/* Line height of UI_FONT_M, for laying out against a fixed row. */
+#define UI_FONT_M_H  14
+
+/* Cell advance and line height of UI_FONT_XL. Emboldening widens the ink, not
+ * the advance. */
 #define UI_FONT_XL_W 10
+#define UI_FONT_XL_H 20
 
 #endif /* UI_FONTS_H */

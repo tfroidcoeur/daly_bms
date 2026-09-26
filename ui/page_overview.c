@@ -92,8 +92,27 @@ UI_STATIC_ASSERT(GAUGE_X + GAUGE_SIZE < VOLT_X, overview_gauge_clears_volt);
  */
 #define GAUGE_Y  (INST_TOP + BAR_H / 2 - GAUGE_SIZE / 2 + GAUGE_SIZE / 8)
 
-/* Direction legend, in the empty gap at the bottom of the dial. */
-#define CHG_Y    (GAUGE_Y + GAUGE_SIZE * 3 / 4)
+/*
+ * Direction legend, in the empty wedge at the bottom of the dial.
+ *
+ * Pinned up from the value row rather than down from the dial. Deriving it from
+ * GAUGE_SIZE is what let a bigger dial walk the badge straight through the amp
+ * value underneath it - the badge's job is to sit above that number, so that is
+ * what it is measured from.
+ *
+ * Horizontally there is room whatever the radius: the arc ends, and with them
+ * the needle's travel, stop 60 degrees short of straight down, so the wedge
+ * below the hub is clear for a wide margin either side of the centre line.
+ */
+#define CHG_GAP  2
+#define CHG_Y    (VALUE_Y - UI_BADGE_H - CHG_GAP)
+
+/* The badge must clear the value row, and must still be inside the dial rather
+ * than floating below it if the dial is ever resized again. */
+UI_STATIC_ASSERT(CHG_Y + UI_BADGE_H <= VALUE_Y, overview_badge_clears_amps);
+UI_STATIC_ASSERT(CHG_Y > GAUGE_Y + GAUGE_SIZE / 2, overview_badge_below_hub);
+UI_STATIC_ASSERT(CHG_Y + UI_BADGE_H <= GAUGE_Y + GAUGE_SIZE,
+                 overview_badge_inside_dial);
 
 /* Two-line footer */
 #define FOOT_RULE_Y   239
@@ -123,7 +142,8 @@ lv_obj_t *ui_page_overview_create(lv_obj_t *page)
      *
      * Inverted, like an alarm row - it is a state change rather than a reading,
      * and it should catch the eye the same way. Aligned to the page centre,
-     * which is the gauge column's centre.
+     * which is the gauge column's centre, and sitting just above the amp value
+     * in the dial's bottom wedge - see CHG_Y.
      */
     g_chg_lbl = ui_label(page, UI_FONT_M_B, "CHARGING");
     ui_set_emphasis(g_chg_lbl, UI_EMPH_BADGE);

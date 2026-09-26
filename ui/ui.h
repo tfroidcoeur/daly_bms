@@ -164,6 +164,13 @@ typedef enum {
 void ui_set_emphasis(lv_obj_t *label, ui_emph_t emph);
 
 /*
+ * Vertical padding UI_EMPH_BADGE puts around its text, top and bottom, so a
+ * caller can work out how tall the badge will be and lay out around it.
+ */
+#define UI_BADGE_PAD_V 2
+#define UI_BADGE_H     (UI_FONT_M_H + 2 * UI_BADGE_PAD_V)
+
+/*
  * Compile-time assertion, C99-portable: an array cannot have negative size.
  *
  * The fonts are monospaced, so "does this string fit its column" is arithmetic

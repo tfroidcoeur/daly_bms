@@ -237,7 +237,7 @@ void ui_set_emphasis(lv_obj_t *label, ui_emph_t emph)
         lv_obj_set_style_bg_color(label, lv_color_black(), 0);
         lv_obj_set_style_bg_opa(label, LV_OPA_COVER, 0);
         lv_obj_set_style_pad_hor(label, 6, 0);
-        lv_obj_set_style_pad_ver(label, 2, 0);
+        lv_obj_set_style_pad_ver(label, UI_BADGE_PAD_V, 0);
         break;
 
     case UI_EMPH_WARN:
