@@ -6,9 +6,9 @@
  *
  * See docs/hardware/daly-can-protocol.md, which now carries Daly's own "CAN
  * Communications Protocol V1.0" alongside the community reverse-engineering
- * this was built from. The two disagree about how 0x95 and 0x96 number their
- * frames; that is handled here rather than decided, and the field layouts still
- * want checking against real hardware.
+ * this was built from. The two agree on everything except the 0x95/0x96 frame
+ * numbering and bytes 5-7 of 0x94; both disagreements are handled here rather
+ * than decided, and both still want checking against real hardware.
  */
 #ifndef DALY_PROTO_H
 #define DALY_PROTO_H
@@ -27,7 +27,7 @@ typedef enum {
     DALY_CMD_CELL_MINMAX = 0x91, /* highest/lowest cell + indices       */
     DALY_CMD_TEMP_MINMAX = 0x92, /* highest/lowest temperature          */
     DALY_CMD_MOS         = 0x93, /* MOSFET state, remaining capacity    */
-    DALY_CMD_STATUS      = 0x94, /* cell/sensor counts, cycles          */
+    DALY_CMD_STATUS      = 0x94, /* cell/sensor counts, maybe cycles    */
     DALY_CMD_CELL_VOLTS  = 0x95, /* per-cell voltages    (multi-frame)  */
     DALY_CMD_CELL_TEMPS  = 0x96, /* per-sensor temps     (multi-frame)  */
     DALY_CMD_BALANCE     = 0x97, /* balancing bitfield                  */

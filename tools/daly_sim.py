@@ -34,11 +34,14 @@ Scenarios:
                 about 600 A (200 A per pack), so the current gauge is driven
                 over its full range
 
-Protocol variants:
-    --frame-base 0   number 0x95/0x96 frames from 0, as Daly's own document says
+Protocol variants, for the two places Daly's own document and the field layout
+this project was built from disagree:
+    --frame-base 0   number 0x95/0x96 frames from 0, as Daly's document says
                      (default 1, as the firmware we have met does)
-The decoder works this out rather than assuming it, and this switch is how that
-gets exercised without owning a pack of each kind.
+    --no-cycles      leave 0x94 bytes 5-7 empty, as Daly's document says they are
+                     (default: a cycle count in 5-6)
+Both are handled by the decoder rather than assumed, and these switches are how
+that gets exercised without owning a pack of each kind.
 """
 
 import argparse
@@ -249,12 +252,18 @@ def main():
                          "has met says 1, which is the default. The decoder "
                          "works it out either way - this is how that gets "
                          "tested without a pack of each kind")
+    ap.add_argument("--no-cycles", action="store_true",
+                    help="leave bytes 5-7 of 0x94 empty, as Daly's protocol "
+                         "document says they are, instead of putting a cycle "
+                         "count in 5-6")
     args = ap.parse_args()
 
     packs = [Pack(1, 84.0, 1), Pack(2, 79.5, 2), Pack(3, 81.2, 3)]
     apply_scenario(args.scenario, packs)
     for p in packs:
         p.frame_base = args.frame_base
+        if args.no_cycles:
+            p.cycles = 0
     by_addr = {p.addr: p for p in packs}
 
     # Only ever see host requests: priority 0x18 in the top bits, source 0x40 in
@@ -283,7 +292,8 @@ def main():
           f"scenario '{args.scenario}'"
           f"{', drop=%.0f%%' % (args.drop * 100) if args.drop else ''}")
     print(f"addresses 0x01 0x02 0x03, host 0x40, extended frames, "
-          f"0x95/0x96 frames numbered from {args.frame_base}")
+          f"0x95/0x96 frames numbered from {args.frame_base}"
+          f"{', 0x94 bytes 5-7 empty' if args.no_cycles else ''}")
 
     rng = random.Random(0)
     start = last = time.monotonic()

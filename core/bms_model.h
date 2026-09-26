@@ -93,6 +93,14 @@ typedef struct {
     uint8_t  cell_count;
     uint8_t  temp_count;
     bool     charger_present, load_present;
+
+    /*
+     * Cycle count, read from bytes 5-6 - which Daly's own protocol document
+     * V1.0 lists as reserved. Firmware that leaves them empty therefore reports
+     * no cycles at all rather than zero cycles, and the flag is how anything
+     * displaying it tells those two apart.
+     */
+    bool     cycles_valid;
     uint16_t cycles;
 
     /* 0x95 / 0x96, committed only when a full set has arrived */

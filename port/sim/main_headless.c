@@ -70,10 +70,16 @@ static void print_model(const system_model_t *m)
             printf("pack %u (0x%02X)   NO DATA\n\n", i + 1, p->addr);
             continue;
         }
+        /* Cycles come from bytes Daly's own document reserves, so say nothing
+         * about them unless this pack actually fills them. */
+        char cycles[24] = "cycles n/r";
+        if (p->cycles_valid) {
+            snprintf(cycles, sizeof cycles, "%u cycles", p->cycles);
+        }
         printf("pack %u (0x%02X)   %6.2f V  %+7.2f A  %6.1f W  SoC %5.1f %%  "
-               "%u cycles  %s%s\n",
+               "%s  %s%s\n",
                i + 1, p->addr, p->pack_mv / 1000.0, p->pack_ma / 1000.0,
-               (double)bms_pack_watts(p), p->soc_pct_x10 / 10.0, p->cycles,
+               (double)bms_pack_watts(p), p->soc_pct_x10 / 10.0, cycles,
                p->chg_mos ? "CHG " : "chg ", p->dsg_mos ? "DSG" : "dsg");
         printf("              cells %u  min %u mV (#%u)  max %u mV (#%u)  "
                "spread %u mV   temp %d..%d C\n",
@@ -145,10 +151,14 @@ static void annotate(uint8_t cmd, const uint8_t *d, char *buf, size_t n)
                  daly_decode_temp_c(d[0]), d[1], daly_decode_temp_c(d[2]), d[3]);
         break;
     case DALY_CMD_STATUS:
-        snprintf(buf, n, "%u cells  %u sensors  %u cycles",
-                 d[0], d[1], (d[5] << 8) | d[6]);
+        /* Bytes 5-7: reserved per Daly's document, cycle count per the layout
+         * this was built from. Printed raw so a real pack can settle it. */
+        snprintf(buf, n, "%u cells  %u sensors  b5-7 %02X %02X %02X",
+                 d[0], d[1], d[5], d[6], d[7]);
         break;
     case DALY_CMD_CELL_VOLTS:
+        /* Byte 0 is the frame number - from 0 per Daly's document, from 1 per
+         * most firmware. Whether the first burst starts at 0 is the answer. */
         snprintf(buf, n, "frame %u: %u %u %u mV", d[0],
                  (d[1] << 8) | d[2], (d[3] << 8) | d[4], (d[5] << 8) | d[6]);
         break;

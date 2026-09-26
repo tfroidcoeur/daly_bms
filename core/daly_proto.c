@@ -232,7 +232,20 @@ bool daly_apply_frame(bms_pack_t *pack, uint8_t cmd, const uint8_t d[8])
         pack->temp_count      = temps;
         pack->charger_present = d[2] != 0;
         pack->load_present    = d[3] != 0;
-        pack->cycles          = be16(&d[5]);
+
+        /*
+         * Bytes 5-7 are reserved in Daly's own protocol document, and a cycle
+         * count in the layout this project was built from. Take it only when
+         * there is something there, so a pack that really does reserve those
+         * bytes reports no cycle count rather than a convincing zero - and,
+         * once a pack has shown it fills them, do not let a later empty frame
+         * unsay it.
+         */
+        const uint16_t cycles = be16(&d[5]);
+        if (cycles != 0) {
+            pack->cycles       = cycles;
+            pack->cycles_valid = true;
+        }
         return true;
     }
 

@@ -30,6 +30,7 @@
 /* The widest string each column can produce, at its worst-case values. */
 UI_STATIC_ASSERT(sizeof "79.80 V  -100.0 A" - 1 <= COL1_CHARS, pack_col1);
 UI_STATIC_ASSERT(sizeof "-25..-25 C  (16)" - 1 <= COL2_CHARS, pack_col2);
+UI_STATIC_ASSERT(sizeof "280.0 Ah 9999 cy" - 1 <= COL2_CHARS, pack_capacity);
 
 typedef struct {
     lv_obj_t *bar;
@@ -40,7 +41,7 @@ typedef struct {
     lv_obj_t *spread;
     lv_obj_t *temps;
     lv_obj_t *mos;
-    lv_obj_t *cycles;
+    lv_obj_t *capacity;
     lv_obj_t *state;
     lv_obj_t *foot;
     lv_obj_t *nodata;
@@ -82,7 +83,7 @@ lv_obj_t *ui_page_pack_create(lv_obj_t *page, uint8_t slot)
 
     v->temps  = ui_field(v->body, "TEMPERATURE", COL2_X, FIELD_TOP - 22);
     v->mos    = ui_field(v->body, "MOSFETS",     COL2_X, FIELD_TOP - 22 + FIELD_PITCH);
-    v->cycles = ui_field(v->body, "CYCLES",      COL2_X, FIELD_TOP - 22 + FIELD_PITCH * 2);
+    v->capacity = ui_field(v->body, "CAPACITY",  COL2_X, FIELD_TOP - 22 + FIELD_PITCH * 2);
     v->state  = ui_field(v->body, "STATE",       COL2_X, FIELD_TOP - 22 + FIELD_PITCH * 3);
 
     /* Left-aligned to the field columns: starting at COL2_X ran the text off
@@ -138,10 +139,22 @@ void ui_page_pack_update(uint8_t slot, const bms_pack_t *p)
              p->chg_mos ? "ON" : "off", p->dsg_mos ? "ON" : "off");
     ui_set_text(v->mos, buf);
 
-    snprintf(buf, sizeof buf, "%u  %lu.%lu Ah", p->cycles,
-             (unsigned long)(p->remaining_mah / 1000),
-             (unsigned long)((p->remaining_mah % 1000) / 100));
-    ui_set_text(v->cycles, buf);
+    /*
+     * Cycle count comes from bytes Daly's own protocol document calls reserved,
+     * so it is printed only by a pack that actually fills them. A pack that does
+     * not shows capacity alone rather than "0 cy", which would read as a brand
+     * new battery. That also makes this field the readout for which of the two
+     * protocol documents a given pack follows.
+     */
+    const unsigned long ah_whole = (unsigned long)(p->remaining_mah / 1000);
+    const unsigned long ah_tenth = (unsigned long)((p->remaining_mah % 1000) / 100);
+    if (p->cycles_valid) {
+        snprintf(buf, sizeof buf, "%lu.%lu Ah %u cy", ah_whole, ah_tenth,
+                 p->cycles);
+    } else {
+        snprintf(buf, sizeof buf, "%lu.%lu Ah", ah_whole, ah_tenth);
+    }
+    ui_set_text(v->capacity, buf);
 
     ui_set_text(v->state, p->charge_state == 1 ? "charging"
                         : (p->charge_state == 2 ? "discharging" : "idle"));

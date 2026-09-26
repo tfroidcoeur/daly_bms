@@ -187,6 +187,7 @@ static void set_geometry(bms_pack_t *p, uint8_t cells, uint8_t temps)
     CHECK(daly_apply_frame(p, DALY_CMD_STATUS, d));
     CHECK_EQ(p->cell_count, cells);
     CHECK_EQ(p->temp_count, temps);
+    CHECK(p->cycles_valid);
     CHECK_EQ(p->cycles, 300);
 }
 
@@ -433,6 +434,35 @@ static void test_multiframe_sets_are_independent(void)
     for (uint8_t t = 0; t < 16; t++) {
         CHECK_EQ(p.temp_c[t], 20 + t);
     }
+}
+
+/*
+ * Daly's protocol document V1.0 lists bytes 5-7 of 0x94 as reserved, but the
+ * field layout this project was built from reads a cycle count from bytes 5-6.
+ * Rather than pick a side we read it and record whether there was anything
+ * there, so a pack that leaves those bytes empty shows no cycle count instead
+ * of a zero that reads as a measurement.
+ */
+static void test_status_cycles_are_optional(void)
+{
+    bms_pack_t p;
+    memset(&p, 0, sizeof p);
+
+    const uint8_t reserved[8] = { 24, 16, 0, 0, 0, 0, 0, 0 };
+    CHECK(daly_apply_frame(&p, DALY_CMD_STATUS, reserved));
+    CHECK(!p.cycles_valid);
+    CHECK_EQ(p.cycles, 0);
+
+    const uint8_t counted[8] = { 24, 16, 0, 0, 0, 0x01, 0x2C, 0 };
+    CHECK(daly_apply_frame(&p, DALY_CMD_STATUS, counted));
+    CHECK(p.cycles_valid);
+    CHECK_EQ(p.cycles, 300);
+
+    /* Having once shown that it reports cycles, a pack does not unsay it with
+     * an empty frame - the reading stands rather than blinking out. */
+    CHECK(daly_apply_frame(&p, DALY_CMD_STATUS, reserved));
+    CHECK(p.cycles_valid);
+    CHECK_EQ(p.cycles, 300);
 }
 
 
@@ -1083,6 +1113,7 @@ int main(void)
         { "0x96 multi-frame",            test_temps_multiframe },
         { "0x95/0x96 independence",      test_multiframe_sets_are_independent },
         { "0x94 geometry validation",    test_status_rejects_implausible_geometry },
+        { "0x94 cycles are optional",    test_status_cycles_are_optional },
         { "MOS / faults / balance",      test_mos_and_faults },
         { "model addressing + summary",  test_model_addressing_and_summary },
         { "ageing (incl. ms wrap)",      test_ageing },
