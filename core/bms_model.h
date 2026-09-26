@@ -22,17 +22,36 @@
 #define DALY_CELLS_PER_FRAME 3
 #define DALY_TEMPS_PER_FRAME 7
 
-/* 64 frame indices, comfortably over the 16 a 48-cell 0x95 burst needs. */
+/* 64 frame slots, comfortably over the 16 a 48-cell 0x95 burst needs. */
 #define DALY_SEEN_BYTES 8
+
+/*
+ * Where byte 0 of a multi-frame response starts counting. Daly's own protocol
+ * document V1.0 says 0; the firmware this project has met says 1. Nothing in a
+ * frame declares which, so the decoder works it out per pack and per command -
+ * see daly_proto.c. UNKNOWN is deliberately the zero value, because packs are
+ * zeroed in several places and "not yet known" is the only safe default.
+ */
+typedef enum {
+    DALY_FRAME_BASE_UNKNOWN = 0,
+    DALY_FRAME_BASE_ZERO,       /* first frame of a burst carries byte 0 == 0 */
+    DALY_FRAME_BASE_ONE,        /* first frame of a burst carries byte 0 == 1 */
+} daly_frame_base_t;
 
 /*
  * Multi-frame reassembly. 0x95 and 0x96 are in flight at the same time and each
  * needs its OWN arrival bitmap: sharing one lets an abandoned burst leave marks
  * that complete the other command's set, publishing frames that never arrived.
+ * For the same reason each learns its frame base separately.
+ *
+ * Bitmap bits are positions within the burst, always counted from 0, whatever
+ * the pack puts on the wire.
  */
 typedef struct {
-    uint8_t  seen_cells[DALY_SEEN_BYTES];  /* 0x95 indices, 1-based */
-    uint8_t  seen_temps[DALY_SEEN_BYTES];  /* 0x96 indices, 1-based */
+    uint8_t  seen_cells[DALY_SEEN_BYTES];  /* 0x95 burst positions */
+    uint8_t  seen_temps[DALY_SEEN_BYTES];  /* 0x96 burst positions */
+    uint8_t  base_cells;                   /* daly_frame_base_t, for 0x95 */
+    uint8_t  base_temps;                   /* daly_frame_base_t, for 0x96 */
     uint16_t cell_mv[BMS_MAX_CELLS];
     int8_t   temp_c[BMS_MAX_TEMPS];
 } daly_rx_scratch_t;

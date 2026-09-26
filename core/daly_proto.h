@@ -4,8 +4,11 @@
  * Pure functions over plain buffers. No I/O, no allocation, no platform headers,
  * so this compiles and unit-tests on the host exactly as it runs on the ESP32.
  *
- * See docs/hardware/daly-can-protocol.md. The field layouts there are from
- * community reverse-engineering and must be validated against real hardware.
+ * See docs/hardware/daly-can-protocol.md, which now carries Daly's own "CAN
+ * Communications Protocol V1.0" alongside the community reverse-engineering
+ * this was built from. The two disagree about how 0x95 and 0x96 number their
+ * frames; that is handled here rather than decided, and the field layouts still
+ * want checking against real hardware.
  */
 #ifndef DALY_PROTO_H
 #define DALY_PROTO_H
@@ -53,6 +56,11 @@ bool daly_decode_id(uint32_t id, uint8_t *cmd, uint8_t *src_addr);
  * Multi-frame commands (0x95, 0x96) accumulate into a scratch buffer and only
  * commit to the visible fields once every expected frame has arrived, so a
  * dropped frame yields no update rather than a half-written cell array.
+ *
+ * Those two also learn from the traffic whether the pack numbers its frames
+ * from 0 or from 1, since the sources disagree and nothing in a frame says.
+ * A pack numbering from 1 therefore spends its first burst of each being
+ * identified, and shows cells one polling round later than it otherwise would.
  */
 bool daly_apply_frame(bms_pack_t *pack, uint8_t cmd, const uint8_t data[8]);
 

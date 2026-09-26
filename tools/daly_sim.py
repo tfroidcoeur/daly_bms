@@ -33,6 +33,12 @@ Scenarios:
     winch       winch duty: long standby broken by pulls that ramp the bank to
                 about 600 A (200 A per pack), so the current gauge is driven
                 over its full range
+
+Protocol variants:
+    --frame-base 0   number 0x95/0x96 frames from 0, as Daly's own document says
+                     (default 1, as the firmware we have met does)
+The decoder works this out rather than assuming it, and this switch is how that
+gets exercised without owning a pack of each kind.
 """
 
 import argparse
@@ -72,6 +78,8 @@ class Pack:
         self.soc = soc_pct
         self.rng = random.Random(seed)
         self.cycles = 120 + addr * 7
+        # Where byte 0 of a 0x95/0x96 burst starts counting; see --frame-base.
+        self.frame_base = 1
         self.life = 0
         self.online = True
         self.alarm = bytearray(7)
@@ -167,7 +175,7 @@ class Pack:
         if cmd == CMD_CELL_VOLTS:
             out = []
             for f in range((CELLS + 2) // 3):
-                payload = bytes([f + 1])
+                payload = bytes([self.frame_base + f])
                 for slot in range(3):
                     idx = f * 3 + slot
                     payload += u16(cells[idx]) if idx < CELLS else b"\x00\x00"
@@ -177,7 +185,7 @@ class Pack:
         if cmd == CMD_CELL_TEMPS:
             out = []
             for f in range((TEMPS + 6) // 7):
-                payload = bytes([f + 1])
+                payload = bytes([self.frame_base + f])
                 for slot in range(7):
                     idx = f * 7 + slot
                     payload += bytes([temps[idx] + 40 if idx < TEMPS else 40])
@@ -235,10 +243,18 @@ def main():
     ap.add_argument("--drop", type=float, default=0.0, metavar="P",
                     help="randomly drop this fraction of replies, to exercise "
                          "the multi-frame reassembly (0.0-1.0)")
+    ap.add_argument("--frame-base", type=int, choices=(0, 1), default=1,
+                    help="first frame number in a 0x95/0x96 burst. Daly's own "
+                         "protocol document says 0; the firmware this project "
+                         "has met says 1, which is the default. The decoder "
+                         "works it out either way - this is how that gets "
+                         "tested without a pack of each kind")
     args = ap.parse_args()
 
     packs = [Pack(1, 84.0, 1), Pack(2, 79.5, 2), Pack(3, 81.2, 3)]
     apply_scenario(args.scenario, packs)
+    for p in packs:
+        p.frame_base = args.frame_base
     by_addr = {p.addr: p for p in packs}
 
     # Only ever see host requests: priority 0x18 in the top bits, source 0x40 in
@@ -266,7 +282,8 @@ def main():
     print(f"daly_sim: 3 packs on {args.interface}:{args.channel}, "
           f"scenario '{args.scenario}'"
           f"{', drop=%.0f%%' % (args.drop * 100) if args.drop else ''}")
-    print("addresses 0x01 0x02 0x03, host 0x40, extended frames")
+    print(f"addresses 0x01 0x02 0x03, host 0x40, extended frames, "
+          f"0x95/0x96 frames numbered from {args.frame_base}")
 
     rng = random.Random(0)
     start = last = time.monotonic()

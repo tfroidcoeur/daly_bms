@@ -108,13 +108,27 @@ static void test_cell_minmax(void)
     CHECK_EQ(bms_pack_cell_delta_mv(&p), 47);
 }
 
-/* Build one 0x95 frame carrying cells (idx-1)*3 .. +2 at 3300 + cell mV. */
-static void make_cell_frame(uint8_t idx, uint8_t cells, uint8_t out[8])
+/*
+ * Byte 0 of a 0x95 or 0x96 response is the frame's place in the burst, but the
+ * two sources disagree on where the count starts: Daly's own protocol document
+ * V1.0 says 0, and the firmware this project has met says 1. The decoder
+ * supports both, so every multi-frame test names which one it is speaking.
+ */
+#define BASE0 0
+#define BASE1 1
+
+/*
+ * Build the 0x95 frame at zero-based position `pos` of the burst, carrying
+ * cells pos*3 .. +2 at 3300 + cell mV. `base` is what the firmware would put in
+ * byte 0 for that position.
+ */
+static void make_cell_frame(uint8_t pos, uint8_t base, uint8_t cells,
+                            uint8_t out[8])
 {
     memset(out, 0, 8);
-    out[0] = idx;
+    out[0] = (uint8_t)(base + pos);
     for (uint8_t slot = 0; slot < 3; slot++) {
-        const uint16_t cell = (uint16_t)((idx - 1) * 3 + slot);
+        const uint16_t cell = (uint16_t)(pos * 3 + slot);
         if (cell >= cells) {
             break;
         }
@@ -124,17 +138,47 @@ static void make_cell_frame(uint8_t idx, uint8_t cells, uint8_t out[8])
     }
 }
 
-static void make_temp_frame(uint8_t idx, uint8_t temps, uint8_t out[8])
+static void make_temp_frame(uint8_t pos, uint8_t base, uint8_t temps,
+                            uint8_t out[8])
 {
     memset(out, 0, 8);
-    out[0] = idx;
+    out[0] = (uint8_t)(base + pos);
     for (uint8_t slot = 0; slot < 7; slot++) {
-        const uint16_t s = (uint16_t)((idx - 1) * 7 + slot);
+        const uint16_t s = (uint16_t)(pos * 7 + slot);
         if (s >= temps) {
             break;
         }
         out[1 + slot] = (uint8_t)(20 + s + 40);   /* 20+s degrees, +40 bias */
     }
+}
+
+/* Send a whole burst in order. True if it published a set. */
+static bool send_cell_burst(bms_pack_t *p, uint8_t base, uint8_t cells)
+{
+    const uint8_t frames = (uint8_t)((cells + 2) / 3);
+    bool published = false;
+    for (uint8_t pos = 0; pos < frames; pos++) {
+        uint8_t f[8];
+        make_cell_frame(pos, base, cells, f);
+        if (daly_apply_frame(p, DALY_CMD_CELL_VOLTS, f)) {
+            published = true;
+        }
+    }
+    return published;
+}
+
+static bool send_temp_burst(bms_pack_t *p, uint8_t base, uint8_t temps)
+{
+    const uint8_t frames = (uint8_t)((temps + 6) / 7);
+    bool published = false;
+    for (uint8_t pos = 0; pos < frames; pos++) {
+        uint8_t f[8];
+        make_temp_frame(pos, base, temps, f);
+        if (daly_apply_frame(p, DALY_CMD_CELL_TEMPS, f)) {
+            published = true;
+        }
+    }
+    return published;
 }
 
 static void set_geometry(bms_pack_t *p, uint8_t cells, uint8_t temps)
@@ -153,25 +197,104 @@ static void test_cell_volts_multiframe(void)
 
     /* Without a cell count, 0x95 must be refused rather than guessed at. */
     uint8_t f[8];
-    make_cell_frame(1, 16, f);
+    make_cell_frame(0, BASE0, 16, f);
     CHECK(!daly_apply_frame(&p, DALY_CMD_CELL_VOLTS, f));
     CHECK(!p.cells_valid);
 
     set_geometry(&p, 16, 4);   /* 16 cells -> ceil(16/3) = 6 frames */
 
-    /* Frames 1..5 must not publish: the set is incomplete. */
-    for (uint8_t i = 1; i <= 5; i++) {
-        make_cell_frame(i, 16, f);
+    /* Frames 1..5 of the burst must not publish: the set is incomplete. */
+    for (uint8_t pos = 0; pos < 5; pos++) {
+        make_cell_frame(pos, BASE0, 16, f);
         CHECK(!daly_apply_frame(&p, DALY_CMD_CELL_VOLTS, f));
         CHECK(!p.cells_valid);
     }
     /* The sixth completes it. */
-    make_cell_frame(6, 16, f);
+    make_cell_frame(5, BASE0, 16, f);
     CHECK(daly_apply_frame(&p, DALY_CMD_CELL_VOLTS, f));
     CHECK(p.cells_valid);
     for (uint8_t c = 0; c < 16; c++) {
         CHECK_EQ(p.cell_mv[c], 3300 + c);
     }
+}
+
+/*
+ * Nothing in a frame says whether byte 0 counts from 0 or from 1, so the
+ * decoder learns it from the only two observations that can come from just one
+ * of the schemes - a byte 0 of 0, which a one-based burst never sends, and a
+ * byte 0 equal to the frame count, which a zero-based burst never reaches - and
+ * places nothing anywhere until it knows.
+ *
+ * Getting this wrong is not a subtle failure: assume the wrong base and the
+ * decisive frame never arrives, so no cell data is ever published at all.
+ */
+static void test_frame_numbering_base(void)
+{
+    bms_pack_t p;
+    uint8_t f[8];
+
+    /* Zero-based: byte 0 = 0 settles it on the first frame of the first burst,
+     * so that burst already publishes. */
+    memset(&p, 0, sizeof p);
+    set_geometry(&p, 24, 16);
+    CHECK(send_cell_burst(&p, BASE0, 24));
+    CHECK(p.cells_valid);
+    for (uint8_t c = 0; c < 24; c++) {
+        CHECK_EQ(p.cell_mv[c], 3300 + c);
+    }
+
+    /* One-based: every frame but the last is consistent with either scheme, so
+     * the first burst is spent learning and the second is the one that shows.
+     * The cost is one polling round, once per pack. */
+    memset(&p, 0, sizeof p);
+    set_geometry(&p, 24, 16);
+    CHECK(!send_cell_burst(&p, BASE1, 24));
+    CHECK(!p.cells_valid);
+    CHECK(send_cell_burst(&p, BASE1, 24));
+    CHECK(p.cells_valid);
+    for (uint8_t c = 0; c < 24; c++) {
+        CHECK_EQ(p.cell_mv[c], 3300 + c);
+    }
+
+    /* Once it is known, the other scheme's indices are simply out of range. */
+    make_cell_frame(0, BASE0, 24, f);        /* byte 0 = 0, never sent here */
+    CHECK(!daly_apply_frame(&p, DALY_CMD_CELL_VOLTS, f));
+
+    /* 0xFF is "frame invalid" in Daly's document, and out of range either way. */
+    make_cell_frame(0, BASE1, 24, f);
+    f[0] = 0xFF;
+    CHECK(!daly_apply_frame(&p, DALY_CMD_CELL_VOLTS, f));
+
+    /* Temperatures are learnt separately: 0x96 carries no evidence about 0x95,
+     * and a bitmap shared between them was a bug once already. */
+    memset(&p, 0, sizeof p);
+    set_geometry(&p, 24, 16);      /* 16 sensors -> 3 frames */
+    CHECK(send_temp_burst(&p, BASE0, 16));
+    CHECK(p.temps_valid);
+    for (uint8_t t = 0; t < 16; t++) {
+        CHECK_EQ(p.temp_c[t], 20 + t);
+    }
+
+    memset(&p, 0, sizeof p);
+    set_geometry(&p, 24, 16);
+    CHECK(!send_temp_burst(&p, BASE1, 16));
+    CHECK(send_temp_burst(&p, BASE1, 16));
+    CHECK(p.temps_valid);
+    for (uint8_t t = 0; t < 16; t++) {
+        CHECK_EQ(p.temp_c[t], 20 + t);
+    }
+
+    /* A set that fits in one frame costs nothing either way round: with one
+     * frame expected, both 0 and 1 are decisive the moment they arrive. */
+    memset(&p, 0, sizeof p);
+    set_geometry(&p, 24, 4);
+    CHECK(send_temp_burst(&p, BASE1, 4));
+    CHECK(p.temps_valid);
+
+    memset(&p, 0, sizeof p);
+    set_geometry(&p, 24, 4);
+    CHECK(send_temp_burst(&p, BASE0, 4));
+    CHECK(p.temps_valid);
 }
 
 static void test_cell_volts_out_of_order_and_dropped(void)
@@ -180,10 +303,12 @@ static void test_cell_volts_out_of_order_and_dropped(void)
     memset(&p, 0, sizeof p);
     set_geometry(&p, 8, 2);   /* 8 cells -> 3 frames */
 
+    /* Frame 0 arrives first, settling the base, and the other two then come the
+     * wrong way round. */
     uint8_t f[8];
-    const uint8_t order[3] = { 3, 1, 2 };
+    const uint8_t order[3] = { 0, 2, 1 };
     for (int i = 0; i < 3; i++) {
-        make_cell_frame(order[i], 8, f);
+        make_cell_frame(order[i], BASE0, 8, f);
         const bool done = daly_apply_frame(&p, DALY_CMD_CELL_VOLTS, f);
         CHECK_EQ(done, i == 2);   /* only the last one completes the set */
     }
@@ -195,15 +320,15 @@ static void test_cell_volts_out_of_order_and_dropped(void)
     /* A dropped frame leaves the previous good data standing, not a half set. */
     memset(&p, 0, sizeof p);
     set_geometry(&p, 8, 2);
-    make_cell_frame(1, 8, f);
+    make_cell_frame(0, BASE0, 8, f);
     daly_apply_frame(&p, DALY_CMD_CELL_VOLTS, f);
-    make_cell_frame(3, 8, f);   /* frame 2 lost */
+    make_cell_frame(2, BASE0, 8, f);   /* the middle frame lost */
     CHECK(!daly_apply_frame(&p, DALY_CMD_CELL_VOLTS, f));
     CHECK(!p.cells_valid);
 
     /* Out-of-range indices are rejected outright. */
-    make_cell_frame(1, 8, f);
-    f[0] = 0;    /* indices are 1-based */
+    make_cell_frame(0, BASE0, 8, f);
+    f[0] = 3;    /* one past the last frame of a zero-based burst of three */
     CHECK(!daly_apply_frame(&p, DALY_CMD_CELL_VOLTS, f));
     f[0] = 99;
     CHECK(!daly_apply_frame(&p, DALY_CMD_CELL_VOLTS, f));
@@ -215,18 +340,18 @@ static void test_temps_multiframe(void)
     memset(&p, 0, sizeof p);
 
     uint8_t f[8];
-    make_temp_frame(1, 16, f);
+    make_temp_frame(0, BASE0, 16, f);
     CHECK(!daly_apply_frame(&p, DALY_CMD_CELL_TEMPS, f));   /* no geometry yet */
     CHECK(!p.temps_valid);
 
     set_geometry(&p, 24, 16);   /* 16 sensors -> ceil(16/7) = 3 frames */
 
-    for (uint8_t i = 1; i <= 2; i++) {
-        make_temp_frame(i, 16, f);
+    for (uint8_t pos = 0; pos < 2; pos++) {
+        make_temp_frame(pos, BASE0, 16, f);
         CHECK(!daly_apply_frame(&p, DALY_CMD_CELL_TEMPS, f));
         CHECK(!p.temps_valid);
     }
-    make_temp_frame(3, 16, f);
+    make_temp_frame(2, BASE0, 16, f);
     CHECK(daly_apply_frame(&p, DALY_CMD_CELL_TEMPS, f));
     CHECK(p.temps_valid);
     for (uint8_t t = 0; t < 16; t++) {
@@ -249,13 +374,13 @@ static void test_multiframe_sets_are_independent(void)
     memset(&p, 0, sizeof p);
     set_geometry(&p, 24, 16);   /* cells: 8 frames, temps: 3 frames */
 
-    for (uint8_t i = 1; i <= 3; i++) {   /* 3 of 8, then the burst is lost */
-        make_cell_frame(i, 24, f);
+    for (uint8_t pos = 0; pos < 3; pos++) {   /* 3 of 8, then the burst is lost */
+        make_cell_frame(pos, BASE0, 24, f);
         daly_apply_frame(&p, DALY_CMD_CELL_VOLTS, f);
     }
     CHECK(!p.cells_valid);
 
-    make_temp_frame(1, 16, f);
+    make_temp_frame(0, BASE0, 16, f);
     CHECK(!daly_apply_frame(&p, DALY_CMD_CELL_TEMPS, f));
     CHECK(!p.temps_valid);
     for (uint8_t t = 0; t < 16; t++) {
@@ -263,8 +388,8 @@ static void test_multiframe_sets_are_independent(void)
     }
 
     /* ...and the cell set it interrupted is still standing. */
-    for (uint8_t i = 4; i <= 8; i++) {
-        make_cell_frame(i, 24, f);
+    for (uint8_t pos = 3; pos < 8; pos++) {
+        make_cell_frame(pos, BASE0, 24, f);
         daly_apply_frame(&p, DALY_CMD_CELL_VOLTS, f);
     }
     CHECK(p.cells_valid);
@@ -276,27 +401,27 @@ static void test_multiframe_sets_are_independent(void)
     memset(&p, 0, sizeof p);
     set_geometry(&p, 24, 16);
 
-    make_temp_frame(1, 16, f);
+    make_temp_frame(0, BASE0, 16, f);
     daly_apply_frame(&p, DALY_CMD_CELL_TEMPS, f);
     CHECK(!p.temps_valid);
 
-    for (uint8_t i = 1; i <= 7; i++) {   /* 7 of the 8 cell frames */
-        make_cell_frame(i, 24, f);
+    for (uint8_t pos = 0; pos < 7; pos++) {   /* 7 of the 8 cell frames */
+        make_cell_frame(pos, BASE0, 24, f);
         CHECK(!daly_apply_frame(&p, DALY_CMD_CELL_VOLTS, f));
         CHECK(!p.cells_valid);
     }
-    make_cell_frame(8, 24, f);
+    make_cell_frame(7, BASE0, 24, f);
     CHECK(daly_apply_frame(&p, DALY_CMD_CELL_VOLTS, f));
     CHECK(p.cells_valid);
 
     /* Fully interleaved, both sets complete and neither is corrupted. */
     memset(&p, 0, sizeof p);
     set_geometry(&p, 24, 16);
-    for (uint8_t i = 1; i <= 8; i++) {
-        make_cell_frame(i, 24, f);
+    for (uint8_t pos = 0; pos < 8; pos++) {
+        make_cell_frame(pos, BASE0, 24, f);
         daly_apply_frame(&p, DALY_CMD_CELL_VOLTS, f);
-        if (i <= 3) {
-            make_temp_frame(i, 16, f);
+        if (pos < 3) {
+            make_temp_frame(pos, BASE0, 16, f);
             daly_apply_frame(&p, DALY_CMD_CELL_TEMPS, f);
         }
     }
@@ -309,6 +434,7 @@ static void test_multiframe_sets_are_independent(void)
         CHECK_EQ(p.temp_c[t], 20 + t);
     }
 }
+
 
 static void test_status_rejects_implausible_geometry(void)
 {
@@ -876,8 +1002,8 @@ static void test_multiframe_scratch_cleared_on_offline(void)
     p->last_seen_ms = 1000;
 
     uint8_t f[8];
-    for (uint8_t i = 1; i <= 3; i++) {
-        make_cell_frame(i, 24, f);
+    for (uint8_t pos = 0; pos < 3; pos++) {
+        make_cell_frame(pos, BASE0, 24, f);
         daly_apply_frame(p, DALY_CMD_CELL_VOLTS, f);
     }
     CHECK(!p->cells_valid);
@@ -885,10 +1011,12 @@ static void test_multiframe_scratch_cleared_on_offline(void)
     bms_model_age(&m, 1000 + 6000, 5000);
     CHECK(!p->online);
 
-    /* It comes back and resumes mid-burst with only the missing frames. */
+    /* It comes back and resumes mid-burst with only the missing frames. The
+     * learnt frame base survives the outage - it is a property of the firmware,
+     * not of the burst - so the pack is not made to teach us it twice. */
     p->online = true;
-    for (uint8_t i = 4; i <= 8; i++) {
-        make_cell_frame(i, 24, f);
+    for (uint8_t pos = 3; pos < 8; pos++) {
+        make_cell_frame(pos, BASE0, 24, f);
         CHECK(!daly_apply_frame(p, DALY_CMD_CELL_VOLTS, f));
     }
     CHECK(!p->cells_valid);
@@ -950,6 +1078,7 @@ int main(void)
         { "temperature offset",          test_temperature_offset },
         { "cell min/max",                test_cell_minmax },
         { "0x95 multi-frame",            test_cell_volts_multiframe },
+        { "0x95/0x96 frame numbering",   test_frame_numbering_base },
         { "0x95 reordered / dropped",    test_cell_volts_out_of_order_and_dropped },
         { "0x96 multi-frame",            test_temps_multiframe },
         { "0x95/0x96 independence",      test_multiframe_sets_are_independent },
