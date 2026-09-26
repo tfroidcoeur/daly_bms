@@ -51,10 +51,6 @@ lv_obj_t *ui_page_cells_create(lv_obj_t *page)
     g_title = ui_label(page, UI_FONT_L_B, "CELLS");
     lv_obj_align(g_title, LV_ALIGN_TOP_LEFT, 0, 0);
 
-    /* The nav hint moves up here so the bottom row can be given to a cell. */
-    lv_obj_t *back = ui_label(page, UI_FONT_S_B, "KEY: back");
-    lv_obj_align(back, LV_ALIGN_TOP_RIGHT, 0, 4);
-
     g_sub = ui_label(page, UI_FONT_S_B, "");
     lv_obj_align(g_sub, LV_ALIGN_TOP_LEFT, 0, 20);
 

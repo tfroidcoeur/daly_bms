@@ -250,7 +250,9 @@ void ui_page_overview_update(const system_model_t *m)
                      (s.charger_present && s.charge_state != 1)
                          ? "   charger connected" : "");
         } else {
-            snprintf(buf, sizeof buf, "KEY: next      hold: cells");
+            /* Nothing to say. The controls are discovered by touching them,
+               and a static hint costs a line that a warning may need. */
+            buf[0] = '\0';
         }
         ui_set_text(g_foot[i], buf);
     }

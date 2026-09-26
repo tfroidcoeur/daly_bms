@@ -30,6 +30,7 @@ idf_component_register(
         "${REPO_ROOT}/ui/fonts"
     REQUIRES
         driver esp_driver_gpio esp_driver_spi esp_driver_twai esp_lcd esp_timer
+        esp_driver_touch_sens
 )
 
 # lv_font_conv emits `#include "lvgl/lvgl.h"` unless this is defined; under

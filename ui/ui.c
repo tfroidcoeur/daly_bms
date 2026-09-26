@@ -293,11 +293,16 @@ void ui_input(ui_key_t key)
             g_page = (ui_page_t)((g_page + 1) % UI_PAGE_COUNT);
         }
     } else {
-        /* Long press drills into cell detail, but only from a pack page -
-         * there is no single pack to show from the overview. */
-        if (g_page == UI_PAGE_OVERVIEW) {
-            g_page = UI_PAGE_PACK1;
-        } else {
+        /*
+         * Drill only ever opens and closes cell detail. The overview has no
+         * single pack to show cells for, so there it does nothing at all.
+         *
+         * It used to jump to pack 1 instead, which made sense when one button
+         * had to do everything and a long press was the only way down. With a
+         * control of its own it reads as "show cells", and moving to a
+         * different page in response looks like a fault.
+         */
+        if (g_page != UI_PAGE_OVERVIEW) {
             g_cells_open = !g_cells_open;
         }
     }

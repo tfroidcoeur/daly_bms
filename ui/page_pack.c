@@ -151,7 +151,7 @@ void ui_page_pack_update(uint8_t slot, const bms_pack_t *p)
                  p->alarms[0], p->alarms[1], p->alarms[2], p->alarms[3],
                  p->alarms[4], p->alarms[5], p->alarms[6]);
     } else {
-        snprintf(buf, sizeof buf, "no alarms      hold KEY for cells");
+        snprintf(buf, sizeof buf, "no alarms");
     }
     ui_set_text(v->foot, buf);
 }

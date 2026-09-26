@@ -269,6 +269,20 @@ void app_main(void)
 {
     board_key_init();
 
+#ifdef CONFIG_BMS_TOUCH_MONITOR
+    /*
+     * Nothing but the pads. board_key_init() has already brought the touch
+     * controller up and logged the benchmarks; this just keeps reporting so a
+     * finger's effect is visible rather than inferred.
+     */
+    ESP_LOGI(TAG, "touch monitor - touch a pad and watch the delta");
+    while (true) {
+        ESP_LOGI(TAG, "--------");
+        board_touch_report();
+        vTaskDelay(pdMS_TO_TICKS(400));
+    }
+#endif
+
 #ifdef CONFIG_BMS_CAN_LOOP_TEST
     can_loop_test();   /* never returns */
     return;

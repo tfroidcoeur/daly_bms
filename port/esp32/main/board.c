@@ -1,5 +1,6 @@
 #include "board.h"
 
+#include <inttypes.h>
 #include <string.h>
 
 #include "esp_check.h"
@@ -10,6 +11,7 @@
 #include "freertos/task.h"
 #include "esp_heap_caps.h"
 #include "lvgl.h"
+#include "driver/touch_sens.h"
 #include "st7305.h"
 #include "ui.h"
 
@@ -189,6 +191,88 @@ bool board_lvgl_start(void)
     return true;
 }
 
+/* ---- input: the onboard KEY, plus two capacitive pads -------------------- */
+
+static touch_sensor_handle_t  g_touch;
+static touch_channel_handle_t g_pad_next, g_pad_drill;
+
+/*
+ * Bring up the touch controller for the two pads.
+ *
+ * Failure here is not fatal: the pads are copper tape behind the front panel
+ * and may simply not be fitted. The KEY button drives the same UI either way,
+ * so a board without pads is a board with one button rather than a broken one.
+ */
+static void touch_init(void)
+{
+    touch_sensor_sample_config_t sample[1] = {
+        TOUCH_SENSOR_V2_DEFAULT_SAMPLE_CONFIG(500, TOUCH_VOLT_LIM_L_0V5,
+                                              TOUCH_VOLT_LIM_H_2V2),
+    };
+    const touch_sensor_config_t sens = TOUCH_SENSOR_DEFAULT_BASIC_CONFIG(1, sample);
+
+    if (touch_sensor_new_controller(&sens, &g_touch) != ESP_OK) {
+        ESP_LOGW(TAG, "no touch controller; KEY only");
+        g_touch = NULL;
+        return;
+    }
+
+    /*
+     * The filter is what makes a bare pad usable at all. It tracks a slowly
+     * moving benchmark per channel - the reading with nobody near it - so the
+     * drift from temperature, humidity and a settling enclosure is absorbed
+     * rather than mistaken for a finger, which arrives far faster than any of
+     * those. The benchmark freezes while a channel is active, or a held touch
+     * would be calibrated away under your fingertip.
+     */
+    const touch_sensor_filter_config_t filter = TOUCH_SENSOR_DEFAULT_FILTER_CONFIG();
+    ESP_ERROR_CHECK(touch_sensor_config_filter(g_touch, &filter));
+
+    const touch_channel_config_t chan = {
+        /* We compare against the benchmark ourselves in board_key_poll(), so
+         * the hardware's own active threshold is left out of the way. */
+        .active_thresh = { 0 },
+        /*
+         * These two must be set explicitly. Zero is a legal value for both and
+         * means something quite different from "default": TOUCH_CHARGE_SPEED_0
+         * is "no charge, always zero", which leaves the pad never charged, the
+         * measurement never finishing, and the counter pinned at its maximum
+         * (0x3FFFFF) on every read.
+         */
+        .charge_speed     = TOUCH_CHARGE_SPEED_7,
+        .init_charge_volt = TOUCH_INIT_CHARGE_VOLT_DEFAULT,
+    };
+    if (touch_sensor_new_channel(g_touch, BOARD_TOUCH_NEXT_CHAN, &chan,
+                                 &g_pad_next) != ESP_OK ||
+        touch_sensor_new_channel(g_touch, BOARD_TOUCH_DRILL_CHAN, &chan,
+                                 &g_pad_drill) != ESP_OK) {
+        ESP_LOGW(TAG, "touch channels unavailable; KEY only");
+        g_touch = NULL;
+        return;
+    }
+
+    /*
+     * Scan a few times before trusting anything: the benchmark starts from
+     * whatever the first measurement happens to be, and one sample of that is
+     * not a baseline.
+     */
+    ESP_ERROR_CHECK(touch_sensor_enable(g_touch));
+    for (int i = 0; i < 8; i++) {
+        touch_sensor_trigger_oneshot_scanning(g_touch, 2000);
+    }
+    ESP_ERROR_CHECK(touch_sensor_start_continuous_scanning(g_touch));
+
+    /* These two numbers are what BOARD_TOUCH_THRESH_DIV has to be chosen
+     * against for real pads. */
+    vTaskDelay(pdMS_TO_TICKS(100));
+    uint32_t bm_next = 0, bm_drill = 0;
+    touch_channel_read_data(g_pad_next, TOUCH_CHAN_DATA_TYPE_BENCHMARK, &bm_next);
+    touch_channel_read_data(g_pad_drill, TOUCH_CHAN_DATA_TYPE_BENCHMARK, &bm_drill);
+    ESP_LOGI(TAG, "touch up: pad benchmarks next=%" PRIu32 " drill=%" PRIu32
+                  " (threshold = benchmark/%d)",
+             bm_next, bm_drill, BOARD_TOUCH_THRESH_DIV);
+}
+
 void board_key_init(void)
 {
     const gpio_config_t cfg = {
@@ -198,6 +282,64 @@ void board_key_init(void)
         .intr_type    = GPIO_INTR_DISABLE,
     };
     ESP_ERROR_CHECK(gpio_config(&cfg));
+
+    touch_init();
+}
+
+/*
+ * A pad counts as touched when its lightly-filtered reading rises far enough
+ * above its own slowly-tracked benchmark. Relative, not absolute: the benchmark
+ * depends on pad size and overlay thickness and moves with the weather, so an
+ * absolute figure would need retuning for every build and every warm afternoon.
+ */
+static bool pad_pressed(touch_channel_handle_t pad, bool *was_active)
+{
+    uint32_t smooth = 0, benchmark = 0;
+
+    if (pad == NULL ||
+        touch_channel_read_data(pad, TOUCH_CHAN_DATA_TYPE_SMOOTH, &smooth) != ESP_OK ||
+        touch_channel_read_data(pad, TOUCH_CHAN_DATA_TYPE_BENCHMARK,
+                                &benchmark) != ESP_OK) {
+        return false;
+    }
+
+    const bool active = smooth > benchmark &&
+                        (smooth - benchmark) > benchmark / BOARD_TOUCH_THRESH_DIV;
+    /* Report the leading edge only, so resting a finger is one event. */
+    const bool pressed = active && !*was_active;
+    *was_active = active;
+    return pressed;
+}
+
+void board_touch_report(void)
+{
+    if (g_touch == NULL) {
+        ESP_LOGE(TAG, "touch controller did not start - KEY only");
+        return;
+    }
+
+    struct { const char *name; touch_channel_handle_t pad; } pads[] = {
+        { "next ", g_pad_next  },
+        { "drill", g_pad_drill },
+    };
+
+    for (unsigned i = 0; i < sizeof pads / sizeof pads[0]; i++) {
+        uint32_t smooth = 0, benchmark = 0;
+        if (pads[i].pad == NULL ||
+            touch_channel_read_data(pads[i].pad, TOUCH_CHAN_DATA_TYPE_SMOOTH,
+                                    &smooth) != ESP_OK ||
+            touch_channel_read_data(pads[i].pad, TOUCH_CHAN_DATA_TYPE_BENCHMARK,
+                                    &benchmark) != ESP_OK) {
+            ESP_LOGE(TAG, "  %s: channel unavailable", pads[i].name);
+            continue;
+        }
+        const int32_t delta = (int32_t)smooth - (int32_t)benchmark;
+        const uint32_t need = benchmark / BOARD_TOUCH_THRESH_DIV;
+        ESP_LOGI(TAG, "  %s bench %7" PRIu32 "  smooth %7" PRIu32
+                      "  delta %+6" PRId32 "  need %+6" PRIu32 "  %s",
+                 pads[i].name, benchmark, smooth, delta, need,
+                 delta > 0 && (uint32_t)delta > need ? "** TOUCHED **" : "");
+    }
 }
 
 bool board_key_poll(bool *long_press)
@@ -205,9 +347,26 @@ bool board_key_poll(bool *long_press)
     static bool     was_down;
     static int64_t  down_at;
     static int64_t  last_edge;
+    static bool     next_active, drill_active;
 
-    const bool    down = gpio_get_level(BOARD_KEY_GPIO) == 0;  /* active low */
-    const int64_t now  = esp_timer_get_time();
+    const int64_t now = esp_timer_get_time();
+
+    /*
+     * Pads first, and they report on touch rather than release: there is no
+     * hold to time. Each pad maps onto one of the two actions the UI already
+     * has, so a second pad replaces the 800 ms hold rather than adding
+     * anything for ui.c to learn.
+     */
+    if (pad_pressed(g_pad_next, &next_active)) {
+        *long_press = false;
+        return true;
+    }
+    if (pad_pressed(g_pad_drill, &drill_active)) {
+        *long_press = true;
+        return true;
+    }
+
+    const bool down = gpio_get_level(BOARD_KEY_GPIO) == 0;  /* active low */
 
     if (down == was_down || now - last_edge < KEY_DEBOUNCE_US) {
         return false;

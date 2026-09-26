@@ -36,6 +36,17 @@ config BMS_CAN_LOOP_TEST
       TWAI: the controller cannot read back its own bits, and reports a flood
       of bus errors whichever of them is to blame. This says which.
 
+config BMS_TOUCH_MONITOR
+    bool "Capacitive touch monitor"
+    help
+      Prints both touch pads' benchmark, smoothed reading and the margin to the
+      activation threshold, several times a second, and does nothing else.
+
+      Touch a pad and watch the numbers. A delta that never moves means the pad
+      or its wiring, not the threshold; a delta that moves but never reaches
+      "need" means BOARD_TOUCH_THRESH_DIV is too high for this pad size and
+      overlay.
+
 endchoice
 
 endmenu
