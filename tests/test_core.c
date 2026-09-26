@@ -716,6 +716,7 @@ static void make_healthy(system_model_t *m)
         p->online       = true;
         p->pack_mv      = 53000;
         p->pack_ma      = -12000;
+        p->charge_state = 2;          /* discharging, as 0x93 would say */
         p->soc_pct_x10  = 800;
         p->cell_count   = 16;
         p->temp_count   = 4;
@@ -877,17 +878,44 @@ static void test_warnings_charging_below_zero(void)
 
     /* Below freezing while discharging is only a cold warning. */
     make_healthy(&m);
-    m.pack[2].temp_min_c = -3;
-    m.pack[2].pack_ma    = -8000;
+    m.pack[2].temp_min_c   = -3;
+    m.pack[2].charge_state = 2;
+    m.pack[2].pack_ma      = -8000;
     warnings_evaluate(&m, &s);
     CHECK(has_code(&s, WARN_TEMP_LOW, 3));
     CHECK(!has_code(&s, WARN_CHARGING_BELOW_ZERO, 3));
 
     /* The same temperature while charging plates lithium: alarm. */
-    m.pack[2].pack_ma = +8000;
+    m.pack[2].charge_state = 1;
+    m.pack[2].pack_ma      = +8000;
     warnings_evaluate(&m, &s);
     CHECK(has_code(&s, WARN_CHARGING_BELOW_ZERO, 3));
     CHECK(warnings_any_alarm(&s));
+
+    /*
+     * The drivers disagree about which way Daly's current points, so "charging"
+     * must come from the BMS's own state in 0x93 and never from the sign. On a
+     * pack whose sign runs the other way, the old rule raised this alarm while
+     * discharging in the cold - and stayed silent while actually charging
+     * below freezing, the one case it exists for.
+     */
+    m.pack[2].charge_state = 1;
+    m.pack[2].pack_ma      = -8000;          /* charging, sign inverted */
+    warnings_evaluate(&m, &s);
+    CHECK(has_code(&s, WARN_CHARGING_BELOW_ZERO, 3));
+
+    m.pack[2].charge_state = 2;
+    m.pack[2].pack_ma      = +8000;          /* discharging, sign inverted */
+    warnings_evaluate(&m, &s);
+    CHECK(!has_code(&s, WARN_CHARGING_BELOW_ZERO, 3));
+    CHECK(has_code(&s, WARN_TEMP_LOW, 3));
+
+    /* Before 0x93 has answered the state is unknown, and unknown is not
+     * charging - the BMS's own charge-temperature protection covers the gap. */
+    m.pack[2].charge_state = 0;
+    m.pack[2].pack_ma      = +8000;
+    warnings_evaluate(&m, &s);
+    CHECK(!has_code(&s, WARN_CHARGING_BELOW_ZERO, 3));
 }
 
 static void test_warnings_ordering_and_capacity(void)
@@ -913,7 +941,8 @@ static void test_warnings_ordering_and_capacity(void)
         p->cell_count  = 16;
         p->cells_valid = true;
         p->pack_mv     = 40000 + i * 4000;   /* mismatch */
-        p->pack_ma     = 5000;               /* charging */
+        p->pack_ma     = 5000;
+        p->charge_state = 1;                 /* charging */
         p->soc_pct_x10 = 50;                 /* critical */
         p->temp_min_c  = -20;                /* charging below zero */
         p->temp_max_c  = 70;                 /* too hot */

@@ -148,10 +148,18 @@ void warnings_evaluate(const system_model_t *m, warning_set_t *out)
          * Charging a lithium-iron cell below freezing plates lithium and does
          * permanent damage, so that is an alarm regardless of how cold it is.
          * Merely being cold is a warning.
+         *
+         * "Charging" is the BMS's own state from 0x93, never the sign of the
+         * current: the Daly drivers in circulation disagree about which way
+         * that points, and a rule keyed on the sign fails in exactly the
+         * dangerous direction - silent while charging - on a pack that runs the
+         * other way. A trickle below the BMS's own charging threshold reads as
+         * idle here; its built-in charge-temperature protection, which 0x98
+         * reports by name, covers that end.
          */
         if (!p->temp_minmax_valid) {
             /* nothing to judge yet */
-        } else if (p->temp_min_c < 0 && p->soc_valid && p->pack_ma > 0) {
+        } else if (p->temp_min_c < 0 && p->charge_state == 1) {
             push(out, WARN_CHARGING_BELOW_ZERO, WARN_LEVEL_ALARM, p->addr,
                  p->temp_min_c, 0);
         } else if (p->temp_min_c <= WARN_TEMP_LOW_ALARM_C) {
