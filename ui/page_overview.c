@@ -9,15 +9,14 @@
  * they are one button press away on the pack pages. What belongs on the front
  * screen is the bank as a whole, plus anything that needs a person.
  *
- * That last part is the two-line footer. Normally it carries the online count,
- * what the bank is doing (charging / discharging / idle, as the BMS units
- * themselves report it) and the button hint. When something is wrong, warnings take those
- * lines over, worst first - so an anomaly displaces the routine text rather
- * than being tucked in beside it, and the page never reflows.
+ * That last part is the two-line footer. Normally it carries the online count
+ * and what the bank is doing (charging / discharging / idle, as the BMS units
+ * themselves report it). When something is wrong, warnings take the lines from
+ * the top, worst first, and the routine line moves down beneath them - or off
+ * the page once both lines are warnings. The page never reflows.
  *
- * Alarms invert the whole row, white on black. There is no colour on this panel
- * and no bold weight in the built-in font, and an inverted band is louder than
- * either would have been.
+ * Alarms invert the whole row, white on black. There is no colour on this
+ * panel, and an inverted band is louder than a bold cut would be.
  */
 #include <stdio.h>
 #include <string.h>
@@ -263,9 +262,14 @@ void ui_page_overview_update(const system_model_t *m)
             continue;
         }
 
-        /* Routine text fills whatever lines the warnings did not take. */
+        /*
+         * Routine text takes the first line the warnings left free. Pinning it
+         * to line 0 meant a single warning pushed it off the page with line 1
+         * still empty - so the moment a pack went quiet, the online count that
+         * says how many are left went with it.
+         */
         ui_set_emphasis(g_foot[i], UI_EMPH_PLAIN);
-        if (i == 0) {
+        if (i == shown) {
             /* What the bank is doing matters more here than any number the
              * instruments already show. */
             const char *state = s.online_count == 0 ? "no data"
@@ -276,8 +280,8 @@ void ui_page_overview_update(const system_model_t *m)
                      (s.charger_present && s.charge_state != 1)
                          ? "   charger connected" : "");
         } else {
-            /* Nothing to say. The controls are discovered by touching them,
-               and a static hint costs a line that a warning may need. */
+            /* Nothing more to say. The controls are discovered by touching
+               them, and a static hint costs a line that a warning may need. */
             buf[0] = '\0';
         }
         ui_set_text(g_foot[i], buf);
