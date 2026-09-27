@@ -175,6 +175,27 @@ lv_obj_t *ui_page_overview_create(lv_obj_t *page)
     return page;
 }
 
+/*
+ * Past full scale the dial pegs, and a pegged dial is indistinguishable from
+ * one reading exactly UI_GAUGE_MAX_A - a winch pull at 540 A looks like 350 A
+ * until you read the number. So the number says it: its column inverts to a
+ * solid band, the same language as an alarm row, for as long as the reading is
+ * off the end of the scale. Restyled only on the transition, so a steady
+ * reading does not redraw the band every refresh.
+ */
+static void set_amps_over_range(bool over)
+{
+    static bool shown;
+    if (over == shown) {
+        return;
+    }
+    shown = over;
+    lv_obj_set_style_text_color(g_amp_val,
+                                over ? lv_color_white() : lv_color_black(), 0);
+    lv_obj_set_style_bg_color(g_amp_val, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(g_amp_val, over ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+}
+
 /* Map a bank voltage onto the bar's 0..1000 range, clamped at both ends. */
 static int32_t volts_to_bar(int32_t mv)
 {
@@ -198,6 +219,7 @@ void ui_page_overview_update(const system_model_t *m)
     if (s.online_count == 0) {
         ui_set_text(g_soc_val, "--.- %");
         ui_set_text(g_amp_val, "--.- A");
+        set_amps_over_range(false);
         ui_set_text(g_volt_val, "--.-- V");
         ui_set_text(g_watt_val, "-- W");
         lv_obj_add_flag(g_chg_lbl, LV_OBJ_FLAG_HIDDEN);
@@ -218,6 +240,9 @@ void ui_page_overview_update(const system_model_t *m)
         ui_fmt_amps(buf, sizeof buf, abs_ma);
         ui_set_text(g_amp_val, buf);
         ui_gauge_set(g_gauge, g_needle, g_fill, abs_ma / 1000);
+        /* Compared in mA: the dial's whole-amp value truncates 350.9 A to 350
+         * and would call it in range. */
+        set_amps_over_range(abs_ma > (int32_t)UI_GAUGE_MAX_A * 1000);
 
         ui_fmt_watts(buf, sizeof buf, abs_w);
         ui_set_text(g_watt_val, buf);
