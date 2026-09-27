@@ -61,18 +61,27 @@ static void test_soc_scaling(void)
     bms_pack_t p;
     memset(&p, 0, sizeof p);
 
-    /* 52.8 V, 15.0 A discharge, 87.5 % SoC.
-     * voltage 528 (0.1 V), current 30000 - 150 = 29850, soc 875 (0.1 %). */
-    const uint8_t d[8] = { 0x02, 0x10, 0, 0, 0x74, 0x9A, 0x03, 0x6B };
+    /*
+     * 52.8 V, 15.0 A discharge, 87.5 % SoC: voltage 528 (0.1 V), soc 875
+     * (0.1 %), and 150 (0.1 A) of discharge on the far side of the 30000 bias.
+     *
+     * Which side that is depends on DALY_CURRENT_SIGN, because the Daly
+     * drivers in circulation disagree about it. The frame is built for
+     * whichever sign this binary was compiled with, and the build runs these
+     * tests under both, so neither setting can rot.
+     */
+    const uint16_t raw = (uint16_t)(30000 - 150 * DALY_CURRENT_SIGN);
+    const uint8_t d[8] = { 0x02, 0x10, 0, 0, (uint8_t)(raw >> 8),
+                           (uint8_t)(raw & 0xFF), 0x03, 0x6B };
     CHECK(daly_apply_frame(&p, DALY_CMD_SOC, d));
     CHECK_EQ(p.pack_mv, 52800);
-    CHECK_EQ(p.pack_ma, -15000);       /* negative: discharging */
+    CHECK_EQ(p.pack_ma, -15000);       /* negative: discharging, either way */
     CHECK_EQ(p.soc_pct_x10, 875);
 
-    /* The 30000 bias: exactly 30000 is zero current. */
+    /* The 30000 bias: exactly 30000 is zero current whichever way it points. */
     CHECK_EQ(daly_decode_current_ma(30000), 0);
-    CHECK_EQ(daly_decode_current_ma(30100), 10000);   /* +10.0 A charge */
-    CHECK_EQ(daly_decode_current_ma(29000), -100000); /* -100.0 A discharge */
+    CHECK_EQ(daly_decode_current_ma(30100),   10000 * DALY_CURRENT_SIGN);
+    CHECK_EQ(daly_decode_current_ma(29000), -100000 * DALY_CURRENT_SIGN);
 
     CHECK_EQ(bms_pack_watts(&p), -792); /* 52.8 V * -15 A */
 }

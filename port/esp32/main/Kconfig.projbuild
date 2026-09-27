@@ -49,4 +49,17 @@ config BMS_TOUCH_MONITOR
 
 endchoice
 
+config BMS_INVERT_CURRENT
+    bool "Daly reports discharge above the 30000 current bias"
+    default n
+    help
+      Which way the pack current points. Daly's own protocol document does
+      not say, and the Daly drivers in circulation disagree about it.
+
+      Settle it at bring-up: put a load on a pack and watch the current on
+      its detail page. It must read negative. If it reads positive, enable
+      this. The overview is unaffected either way - its dial shows magnitude
+      and its CHARGING badge comes from the BMS's own state - and so is the
+      charging-below-freezing alarm, for the same reason.
+
 endmenu

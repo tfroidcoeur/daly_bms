@@ -15,20 +15,43 @@ endif()
 
 add_compile_options(-Wall -Wextra)
 
+# Which way Daly's current points - see DALY_CURRENT_SIGN in core/daly_proto.h.
+# Settled at bring-up: under load the current must read negative.
+option(BMS_INVERT_CURRENT "Daly reports discharge above the 30000 bias" OFF)
+if(BMS_INVERT_CURRENT)
+    set(BMS_CURRENT_SIGN -1)
+    set(BMS_OTHER_SIGN    1)
+else()
+    set(BMS_CURRENT_SIGN  1)
+    set(BMS_OTHER_SIGN   -1)
+endif()
+
 # ---------------------------------------------------------------- core (portable)
-add_library(bms_core STATIC
+set(BMS_CORE_SOURCES
     core/daly_proto.c
     core/bms_model.c
     core/poller.c
     core/warnings.c
 )
+add_library(bms_core STATIC ${BMS_CORE_SOURCES})
 target_include_directories(bms_core PUBLIC core)
+target_compile_definitions(bms_core PUBLIC DALY_CURRENT_SIGN=${BMS_CURRENT_SIGN})
 
 # ---------------------------------------------------------------- tests
 enable_testing()
 add_executable(test_core tests/test_core.c)
 target_link_libraries(test_core PRIVATE bms_core)
 add_test(NAME core COMMAND test_core)
+
+# The same tests against the opposite current sign. Only one setting is in use
+# at a time, and the other would otherwise never be built.
+add_library(bms_core_other_sign STATIC ${BMS_CORE_SOURCES})
+target_include_directories(bms_core_other_sign PUBLIC core)
+target_compile_definitions(bms_core_other_sign
+    PUBLIC DALY_CURRENT_SIGN=${BMS_OTHER_SIGN})
+add_executable(test_core_other_sign tests/test_core.c)
+target_link_libraries(test_core_other_sign PRIVATE bms_core_other_sign)
+add_test(NAME core_other_sign COMMAND test_core_other_sign)
 
 # ---------------------------------------------------------------- headless monitor
 add_executable(sim_headless

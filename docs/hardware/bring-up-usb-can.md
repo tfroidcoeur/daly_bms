@@ -225,8 +225,18 @@ All three bytes zero means the document is right for this firmware, and
 ### Then put a load on it
 
 Anything - a lamp, a small motor. **Current must go negative.** Positive is
-charging by our convention, and an inverted sign makes the winch page read
-backwards during a pull, which is the one moment it has to be right.
+charging by our convention.
+
+This is the one check here with a known way to fail: the Daly drivers in
+circulation disagree about which way the current points (see
+[daly-can-protocol.md](daly-can-protocol.md#0x90---pack-voltage-current-soc)).
+If it reads positive under load, nothing is broken - enable
+`CONFIG_BMS_INVERT_CURRENT` in `idf.py menuconfig` (or rebuild the host with
+`-DBMS_INVERT_CURRENT=ON`) and check again. `daly_sim.py --invert-current`
+reproduces the other convention on the bench.
+
+The overview and the charging-below-freezing alarm do not depend on this
+either way; they read the BMS's own charging state from `0x93`.
 
 ### What cannot be checked this way
 

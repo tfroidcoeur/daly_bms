@@ -64,11 +64,30 @@ bool daly_decode_id(uint32_t id, uint8_t *cmd, uint8_t *src_addr);
  */
 bool daly_apply_frame(bms_pack_t *pack, uint8_t cmd, const uint8_t data[8]);
 
+/*
+ * Which way Daly's current points once the 30000 bias is removed: +1 if above
+ * the bias is charging, -1 if above it is discharging.
+ *
+ * Daly's own document does not say, and the drivers in circulation disagree -
+ * dbus-serialbattery divides by -10 and ships an invert switch, maland16's
+ * library reads it the other way. So it is a setting, settled at bring-up: put
+ * a load on the pack, and the current must go negative. If it goes positive,
+ * set CONFIG_BMS_INVERT_CURRENT on the device, or -DBMS_INVERT_CURRENT=ON on
+ * the host.
+ *
+ * Whatever the wire does, the model's convention is fixed: positive pack_ma is
+ * charging. And nothing safety-relevant depends on it either way - the
+ * charging-below-freezing rule reads the BMS's own state from 0x93.
+ */
+#ifndef DALY_CURRENT_SIGN
+#define DALY_CURRENT_SIGN 1
+#endif
+
 /* Scaling helpers, exposed for tests and for the frame logger. */
 static inline int32_t daly_decode_current_ma(uint16_t raw)
 {
-    /* 0.1 A resolution, biased by 30000 so that discharge can go negative. */
-    return ((int32_t)raw - 30000) * 100;
+    /* 0.1 A resolution, biased by 30000 so that either direction fits. */
+    return ((int32_t)raw - 30000) * 100 * DALY_CURRENT_SIGN;
 }
 
 static inline int8_t daly_decode_temp_c(uint8_t raw)

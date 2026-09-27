@@ -40,6 +40,8 @@ this project was built from disagree:
                      (default 1, as the firmware we have met does)
     --no-cycles      leave 0x94 bytes 5-7 empty, as Daly's document says they are
                      (default: a cycle count in 5-6)
+    --invert-current discharge above the 30000 bias, as dbus-serialbattery reads
+                     Daly (default: below it)
 Both are handled by the decoder rather than assumed, and these switches are how
 that gets exercised without owning a pack of each kind.
 """
@@ -83,6 +85,8 @@ class Pack:
         self.cycles = 120 + addr * 7
         # Where byte 0 of a 0x95/0x96 burst starts counting; see --frame-base.
         self.frame_base = 1
+        # Which way the current points on the wire; see --invert-current.
+        self.current_sign = 1
         self.life = 0
         self.online = True
         self.alarm = bytearray(7)
@@ -151,7 +155,8 @@ class Pack:
 
         if cmd == CMD_SOC:
             return [u16(self.pack_mv() / 100) + b"\x00\x00" +
-                    u16(30000 + self.pack_ma() / 100) + u16(self.soc * 10)]
+                    u16(30000 + self.current_sign * self.pack_ma() / 100) +
+                    u16(self.soc * 10)]
 
         if cmd == CMD_CELL_MINMAX:
             hi = max(range(CELLS), key=lambda i: cells[i])
@@ -252,6 +257,10 @@ def main():
                          "has met says 1, which is the default. The decoder "
                          "works it out either way - this is how that gets "
                          "tested without a pack of each kind")
+    ap.add_argument("--invert-current", action="store_true",
+                    help="put discharge above the 30000 current bias rather "
+                         "than below it, as dbus-serialbattery reads Daly. "
+                         "Pair with a -DBMS_INVERT_CURRENT=ON build")
     ap.add_argument("--no-cycles", action="store_true",
                     help="leave bytes 5-7 of 0x94 empty, as Daly's protocol "
                          "document says they are, instead of putting a cycle "
@@ -262,6 +271,7 @@ def main():
     apply_scenario(args.scenario, packs)
     for p in packs:
         p.frame_base = args.frame_base
+        p.current_sign = -1 if args.invert_current else 1
         if args.no_cycles:
             p.cycles = 0
     by_addr = {p.addr: p for p in packs}
@@ -293,7 +303,8 @@ def main():
           f"{', drop=%.0f%%' % (args.drop * 100) if args.drop else ''}")
     print(f"addresses 0x01 0x02 0x03, host 0x40, extended frames, "
           f"0x95/0x96 frames numbered from {args.frame_base}"
-          f"{', 0x94 bytes 5-7 empty' if args.no_cycles else ''}")
+          f"{', 0x94 bytes 5-7 empty' if args.no_cycles else ''}"
+          f"{', current inverted' if args.invert_current else ''}")
 
     rng = random.Random(0)
     start = last = time.monotonic()

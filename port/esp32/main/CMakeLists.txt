@@ -33,6 +33,11 @@ idf_component_register(
         esp_driver_touch_sens
 )
 
+# Which way Daly's current points - see DALY_CURRENT_SIGN in core/daly_proto.h.
+if(CONFIG_BMS_INVERT_CURRENT)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE DALY_CURRENT_SIGN=-1)
+endif()
+
 # lv_font_conv emits `#include "lvgl/lvgl.h"` unless this is defined; under
 # ESP-IDF the header is on the include path as plain "lvgl.h".
 target_compile_definitions(${COMPONENT_LIB} PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)

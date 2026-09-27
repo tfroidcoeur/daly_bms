@@ -103,8 +103,22 @@ All payloads are 8 bytes, big-endian.
 | 4-5 | Current, u16, **0.1 A, offset 30000** -> `A = (raw - 30000) / 10` |
 | 6-7 | SoC, u16, **0.1 %** |
 
-Sign convention: after removing the offset, positive is charge, negative is
-discharge.
+**Sign convention: disputed.** Daly's document gives the offset and the scale
+but not the direction, and the drivers in circulation disagree.
+dbus-serialbattery - the most widely deployed - computes `(raw - 30000) / -10`,
+so above the bias is *discharge*, and ships an `INVERT_CURRENT_MEASUREMENT`
+switch besides. maland16's daly-bms-uart reads above the bias as charge, which
+is this project's default.
+
+So it is a setting, `DALY_CURRENT_SIGN` in `core/daly_proto.h`, settled at
+bring-up: under load the current must read negative. If it reads positive,
+enable `CONFIG_BMS_INVERT_CURRENT` on the device (or build the host with
+`-DBMS_INVERT_CURRENT=ON`). Whatever the wire does, the model's convention is
+fixed - positive `pack_ma` is charging.
+
+Nothing safety-relevant depends on getting this right. The overview dial shows
+magnitude, its CHARGING badge comes from `0x93`'s state byte, and so does the
+charging-below-freezing alarm. Only the pack page's signed amps and watts do.
 
 ### `0x91` - cell voltage extremes
 
