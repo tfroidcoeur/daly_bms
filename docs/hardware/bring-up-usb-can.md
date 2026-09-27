@@ -169,8 +169,8 @@ Each targets one assumption, and each fails distinctively:
 | Check | Against | If wrong |
 |---|---|---|
 | Pack voltage | a multimeter across the terminals | scaling - we assume 0.1 V units |
-| **Current at rest** | should be ~0 A with nothing connected | **~±3000 A means the 30000 offset is wrong** (`core/daly_proto.h:60`) |
-| **Temperature** | a room thermometer | **~40 C out either way means the 40 offset is wrong** (`core/daly_proto.h:66`) |
+| **Current at rest** | should be ~0 A with nothing connected | **~±3000 A means the 30000 offset is wrong** (`core/daly_proto.h:117`) |
+| **Temperature** | a room thermometer | **~40 C out either way means the 40 offset is wrong** (`core/daly_proto.h:123`) |
 | **Sum of the cell voltages** | should equal the measured pack voltage | `0x95` ordering, scaling and multi-frame reassembly, all in one number |
 | Cell count | the pack in front of you | `0x94` - and this one gates the others |
 
@@ -189,8 +189,8 @@ appearing points at `0x94` - or at the frame numbering, which is the next sectio
 Both are answered by looking, not by reasoning, and both take seconds.
 
 **1. Does `0x95` number its frames from 0 or from 1?** Daly's document says 0, the
-community layout says 1, and the decoder works it out from the traffic rather than
-assuming. In the `--raw` output, read byte 0 of the first `0x95` reply after a
+community layout says 1, and every driver written against real hardware says 1 -
+so expect `01`. The decoder works it out from the traffic rather than assuming. In the `--raw` output, read byte 0 of the first `0x95` reply after a
 request:
 
 ```
@@ -208,7 +208,8 @@ If cells never appear at all and `0x94` is reporting the right count, the frame
 numbering is where to look: the raw log shows exactly which byte 0 values arrived.
 
 **2. Does `0x94` put a cycle count in bytes 5-6, or are they reserved?** Daly's
-document says reserved. Read the tail of a `0x94` reply:
+document says reserved; every driver I could find reads a cycle count there, so
+expect one. Read the tail of a `0x94` reply:
 
 ```
      731  RX 18944001  [8] 18 04 00 01 00 00 85 00   pack 1  0x94 status        24 cells  4 sensors  b5-7 00 85 00
@@ -240,13 +241,12 @@ either way; they read the BMS's own charging state from `0x93`.
 
 ### What cannot be checked this way
 
-`0x98` faults print as raw bytes with no interpretation. The bit meanings are
-now fully specified - the table is in
-[daly-can-protocol.md](daly-can-protocol.md#0x98---failure--alarm-flags) - but
-none has yet been seen set on hardware, so naming one on screen would still be
-claiming more than we know. If you can provoke a real alarm (a cell pulled low, a
-charge attempt below zero), capture the bytes: that is what turns the table into
-something the display can say out loud.
+`0x98` faults are named on screen from Daly's table (see
+[daly-can-protocol.md](daly-can-protocol.md#0x98---failure--alarm-flags)), which
+dbus-serialbattery corroborates - but no bit has yet been seen set on this
+project's hardware. If you can provoke a real one (a charge attempt below the
+pack's charge-temperature limit is the gentlest), check that the name on the pack
+page matches what Daly's app says, and keep the raw line from `--raw`.
 
 SoC has no physical referent either, so Daly's own app is genuinely the only
 cross-check for it.

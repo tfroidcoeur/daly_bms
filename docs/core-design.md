@@ -260,6 +260,16 @@ on plausibility:
   must track. A sustained 0.5 V gap is a bad joint, an open fuse, or a contactor
   that has not closed, and it is a bank-level alarm rather than a per-pack one.
 
+The BMS's own `0x98` flags are the one rule whose severity is not ours to set.
+Daly defines two levels per condition - level 1 a warning, level 2 the BMS
+tripping its protection - and a warning at level 1 stays a warning here. Level 2,
+a hardware fault, or a bit Daly marks reserved turning up set are alarms.
+
+The "charging below freezing" rule decides *charging* from the BMS's own state in
+`0x93`, never from the sign of the current. The sign is disputed between the
+drivers in circulation (see below), and a rule keyed on it fails in the
+dangerous direction - silent while charging - on a pack that runs the other way.
+
 Warnings are sorted by severity, then pack, then code, so the first line is
 always the one that matters most; the overview shows only the top few and a
 `(+N more)` count.
@@ -285,6 +295,10 @@ Where the two sources disagree, the code refuses to choose:
 |---|---|---|
 | `0x95` / `0x96` byte 0 | numbered from 0 or from 1 | learned from the traffic, above |
 | `0x94` bytes 5-6 | reserved, or a cycle count | read, with `cycles_valid` saying whether anything was there |
+| `0x90` current direction | not stated; the drivers disagree | `DALY_CURRENT_SIGN`, a build setting settled at bring-up |
+
+On the first two, every driver written against real hardware sides with the
+community layout - 1-based frames, cycles present - so that is what to expect.
 
 `cycles_valid` exists so the panel can stay silent rather than print a zero that
 reads as a brand new battery. It is also the cheapest possible instrument for the
@@ -298,11 +312,13 @@ over USB serial and draws nothing. Compare that against Daly's own app, one pack
 at a time, and correct the table before correcting anything else.
 
 The two scalings most likely to be wrong, because both are biased rather than
-plain, are in `core/daly_proto.h:60`:
+plain, are in `core/daly_proto.h:117`:
 
 ```c
-current_ma = (raw - 30000) * 100    /* 0.1 A resolution, 30000 offset */
-temp_c     = raw - 40               /* 40 degree offset */
+current_ma = (raw - 30000) * 100 * DALY_CURRENT_SIGN  /* 0.1 A, 30000 offset */
+temp_c     = raw - 40                                 /* 40 degree offset */
 ```
 
-If the current reads 3000 A at rest, that offset is the first thing to check.
+If the current reads 3000 A at rest, that offset is the first thing to check. If
+it reads the right size but positive under load, that is the sign - set
+`CONFIG_BMS_INVERT_CURRENT` - and nothing else is wrong.

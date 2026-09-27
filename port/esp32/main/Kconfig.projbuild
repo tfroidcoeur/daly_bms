@@ -17,10 +17,11 @@ config BMS_RAW_LOGGER
       Dumps every transmitted and received CAN frame over USB serial and does
       not initialise the display.
 
-      Use this on first contact with real hardware: the Daly field layouts in
-      docs/hardware/daly-can-protocol.md come from community reverse-engineering
-      rather than a vendor datasheet, so they must be checked against an actual
-      BMS (cross-referenced with Daly's own app) before the GUI is trusted.
+      Use this on first contact with real hardware: Daly's own protocol
+      document and the firmware in service disagree in places (see
+      docs/hardware/daly-can-protocol.md), so the field layouts must be checked
+      against an actual BMS, cross-referenced with Daly's own app, before the
+      GUI is trusted.
 
 config BMS_CAN_LOOP_TEST
     bool "CAN transceiver loop test"

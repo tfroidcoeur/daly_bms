@@ -36,7 +36,8 @@ poor light.
 
 Warning rules live in `core/warnings.c`, not the UI, so they are unit-tested:
 pack offline, parallel-pack voltage mismatch, cell count mismatch, implausible
-cell readings, excessive spread, BMS fault flags, low SoC, over/under
+cell readings, excessive spread, the BMS's own fault flags (by name, at Daly's
+own severity), low SoC, over/under
 temperature, and charging below freezing. Thresholds are `#define`s at the top
 of `core/warnings.h` and assume a **24S LiFePO4 bank** - 60.0 V empty, 87.6 V
 full, which is also the range of the voltage column (`UI_VBAR_CELLS` in
@@ -380,9 +381,10 @@ do not hold it across anything slow.
 
 Build the raw frame logger first (`idf.py -C port/esp32 menuconfig` -> Daly BMS
 monitor -> raw CAN frame logger). It skips the display entirely and dumps every
-frame over USB serial. The Daly field layouts are reconstructed from community
-reverse-engineering, not a vendor datasheet: check them against Daly's own app
-and correct `core/daly_proto.c` before trusting anything on screen. The full
+frame over USB serial. The Daly field layouts follow Daly's own protocol
+document where real firmware does, and the community layout where it does not
+([daly-can-protocol.md](docs/hardware/daly-can-protocol.md) says which is
+which): check them against Daly's own app before trusting anything on screen. The full
 sequence is in [`docs/hardware/wiring.md`](docs/hardware/wiring.md#bring-up-order).
 
 Faster, and what to do first: skip the board entirely and put a USB-CAN adapter

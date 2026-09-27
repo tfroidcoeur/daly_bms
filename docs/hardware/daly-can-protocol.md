@@ -25,8 +25,31 @@ cell data is ever published at all**. `core/daly_proto.c` therefore does not
 choose: it works the base out from the traffic. See
 [the frame numbering section](#frame-numbering-0-based-or-1-based) below.
 
-**The `0x98` fault bits are now fully specified** (Daly V1.0), but this project
-still surfaces them as raw bytes - see the note under that command.
+### Which one real firmware follows
+
+On both disputed rows, **the community layout, almost certainly.** Daly never
+revised them: the UART/485 document V1.2 (2020-12-22, which revises V1.0 and
+shares the same `0x90`-`0x98` payloads) still says 0-based and reserved. Every
+driver written against real hardware disagrees with the document:
+
+| Driver | Frame byte 0 | `0x94` bytes 5-6 |
+|---|---|---|
+| dbus-serialbattery, serial and **CAN** | 1-based - "daly is 1 based" | cycle count |
+| matthewgream/DalyBMSInterface (2024) | 1-based - rejects a first frame that is not 1 | cycle count |
+| maland16/daly-bms-uart | ignores it | cycle count |
+
+So expect `01` and a cycle count. The decoder copes with either, which costs a
+1-based pack one polling round at startup and nothing else.
+
+A third row is disputed and neither document settles it: **the direction of the
+current.** See `0x90` below.
+
+Newer Daly hardware also speaks a Modbus protocol (start byte `0xD2`) on its
+RS485 port. That does not touch CAN; dbus-serialbattery's CAN driver still uses
+the `0x18xx0140` identifiers below.
+
+**The `0x98` fault bits are fully specified** (Daly V1.0), and the display names
+them - see the note under that command.
 
 Everything here still wants checking against real hardware. The raw frame logger
 (`CONFIG_BMS_RAW_LOGGER`, and `--raw` on the host simulator) exists for that, and
@@ -253,10 +276,15 @@ Fully specified by Daly V1.0. Every bit is 0 = no error, 1 = error.
 "L1" and "L2" are Daly's two alarm levels: L1 is a warning, L2 the protection
 trip.
 
-`core/daly_proto.c` still stores bytes 0-6 opaquely and reports only
-`alarm_active`, and the pack page prints the raw hex. Decoding these into named
-messages is the obvious next step now the table is known, but no bit has been
-seen set on real hardware yet, so nothing is claimed by name.
+dbus-serialbattery groups the bytes the same way and agrees bit for bit where
+it decodes them (byte 1 in full), which is the independent check on the table.
+
+`core/daly_proto.c` names every bit in plain language (`daly_fault_name()`),
+leaves the reserved ones unnamed, and picks the one worth a line: the first
+level-2 or hardware fault, else the first level-1 flag. A level-1 flag shows as
+a warning, anything else as an alarm - including a reserved bit that turns up
+set. The overview and the pack page show that one by name with the others
+counted; `sim_headless` names them all and keeps the raw bytes beside them.
 
 ## Polling strategy
 
@@ -277,6 +305,13 @@ A pack that misses several consecutive rounds is marked offline and drawn as
   2019-06-11. Mirrored at
   <https://robu-prod-media.s3.ap-south-1.amazonaws.com/uploads/2022/02/Daly-CAN-Communications-Protocol-V1.0-1.pdf>
 - <https://www.dalybms.com/news/daly-three-communication-protocols-explanation/>
+- **Daly UART/485 Communications Protocol V1.2**, 2020-12-22 - same payloads,
+  same two rows unrevised:
+  <https://robu.in/wp-content/uploads/2021/10/Daly-UART_485-Communications-Protocol-V1.21-1.pdf>
+- dbus-serialbattery's Daly drivers, serial and CAN:
+  <https://github.com/Louisvdw/dbus-serialbattery/tree/master/etc/dbus-serialbattery/bms>
+- <https://github.com/matthewgream/DalyBMSInterface>
+- <https://github.com/maland16/daly-bms-uart>
 - <https://github.com/Louisvdw/dbus-serialbattery/discussions/561>
 - <https://diysolarforum.com/threads/decoding-the-daly-smartbms-protocol.21898/page-2>
 - <https://diysolarforum.com/threads/daly-bms-can-and-arduino.22268/>
