@@ -34,6 +34,18 @@
 #define BAR_W         96
 #define VALUE_X      148
 
+/*
+ * The sub-heading's character budget, at UI_FONT_S_B's 6 px cell: 64. It used
+ * to be written with three-space gaps and a unit on the bar legend, and ran off
+ * the glass once a pack drifted past a 100 mV spread while balancing - exactly
+ * when this page is being read. The widest line the format can produce at
+ * readings inside the sane band has to fit; the balancing glyph is counted as
+ * two cells to be safe.
+ */
+#define SUB_CHARS (UI_CONTENT_W / UI_FONT_S_W)
+UI_STATIC_ASSERT(sizeof "48 cells  bars 2500-3650  now 2000-4000  spread 2000 mV  XX bal"
+                 - 1 <= SUB_CHARS, cells_sub_fits);
+
 typedef struct {
     lv_obj_t *index;
     lv_obj_t *mark;   /* min / max / balancing marker */
@@ -51,7 +63,12 @@ lv_obj_t *ui_page_cells_create(lv_obj_t *page)
     g_title = ui_label(page, UI_FONT_L_B, "CELLS");
     lv_obj_align(g_title, LV_ALIGN_TOP_LEFT, 0, 0);
 
+    /* Fixed to the content width with dots, so a reading outside the sane band
+     * - a dead sense channel reporting 0 or 65535 - truncates visibly instead
+     * of running off the panel with nothing to show it was cut. */
     g_sub = ui_label(page, UI_FONT_S_B, "");
+    lv_label_set_long_mode(g_sub, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_width(g_sub, UI_CONTENT_W);
     lv_obj_align(g_sub, LV_ALIGN_TOP_LEFT, 0, 20);
 
     lv_obj_t *rule = ui_rule(page);
@@ -132,10 +149,10 @@ void ui_page_cells_update(const bms_pack_t *p)
     }
 
     snprintf(buf, sizeof buf,
-             "%u cells   bars %u-%u mV   now %u-%u   spread %u%s",
+             "%u cells  bars %u-%u  now %u-%u  spread %u mV%s",
              p->cell_count, (unsigned)UI_CELL_MIN_MV, (unsigned)UI_CELL_MAX_MV,
              lo, hi, (unsigned)(hi - lo),
-             any_balancing ? "   " LV_SYMBOL_REFRESH " bal" : "");
+             any_balancing ? "  " LV_SYMBOL_REFRESH " bal" : "");
     ui_set_text(g_sub, buf);
 
     const uint8_t shown = p->cell_count < g_rows_built ? p->cell_count
