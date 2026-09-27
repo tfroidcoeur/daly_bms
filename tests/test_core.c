@@ -1091,6 +1091,101 @@ static void test_multiframe_scratch_cleared_on_offline(void)
 }
 
 /* slow_divider is caller-supplied; 0 is a natural way to write "never skip". */
+/*
+ * 0x98's bits, as Daly's own protocol document V1.0 defines them. Level 1 is a
+ * warning; level 2 and everything in bytes 4-6 means the BMS has acted.
+ * dbus-serialbattery groups the bytes identically and matches byte 1 bit for
+ * bit, which is the independent check on the table.
+ */
+static void test_fault_names(void)
+{
+    CHECK(strcmp(daly_fault_name(0, 0), "cell voltage high") == 0);
+    CHECK(strcmp(daly_fault_name(0, 1), "cell voltage high") == 0);
+    CHECK(strcmp(daly_fault_name(1, 2), "charge temp low") == 0);
+    CHECK(strcmp(daly_fault_name(5, 3), "EEPROM fault") == 0);
+    CHECK(strcmp(daly_fault_name(6, 2), "short circuit protection") == 0);
+
+    /* Reserved in the document: no name rather than a guess. */
+    CHECK(daly_fault_name(3, 4) == NULL);
+    CHECK(daly_fault_name(6, 7) == NULL);
+    CHECK(daly_fault_name(7, 0) == NULL);      /* byte 7 is a code, not bits */
+
+    /* Level 1 warns, level 2 trips; the hardware faults always count as a trip. */
+    CHECK(!daly_fault_is_trip(0, 0));
+    CHECK(daly_fault_is_trip(0, 1));
+    CHECK(!daly_fault_is_trip(2, 4));          /* SoC high, level 1 */
+    CHECK(daly_fault_is_trip(3, 3));           /* temperature spread, level 2 */
+    CHECK(daly_fault_is_trip(4, 0));
+    CHECK(daly_fault_is_trip(5, 3));
+
+    char buf[48];
+    daly_fault_describe(0 * 8 + 1, buf, sizeof buf);
+    CHECK(strcmp(buf, "cell voltage high, tripped") == 0);
+    daly_fault_describe(0 * 8 + 0, buf, sizeof buf);
+    CHECK(strcmp(buf, "cell voltage high") == 0);
+    daly_fault_describe(5 * 8 + 3, buf, sizeof buf);
+    CHECK(strcmp(buf, "EEPROM fault") == 0);
+    daly_fault_describe(3 * 8 + 4, buf, sizeof buf);   /* reserved bit set */
+    CHECK(strcmp(buf, "fault byte 3 bit 4") == 0);
+}
+
+/* Which bit gets the one line: a trip beats a warning wherever it sits. */
+static void test_fault_worst(void)
+{
+    uint8_t a[BMS_ALARM_BYTES] = { 0 };
+    uint8_t pos = 0xAA;
+
+    CHECK_EQ(daly_fault_worst(a, &pos), 0);
+    CHECK_EQ(pos, 0xAA);                       /* untouched when clear */
+
+    a[0] = 0x01;                               /* cell voltage high, level 1 */
+    CHECK_EQ(daly_fault_worst(a, &pos), 1);
+    CHECK_EQ(pos, 0);
+
+    a[5] = 0x08;                               /* EEPROM fault, later on the wire */
+    CHECK_EQ(daly_fault_worst(a, &pos), 2);
+    CHECK_EQ(pos, 5 * 8 + 3);
+
+    a[1] = 0x02;                               /* charge temp high, level 2 */
+    CHECK_EQ(daly_fault_worst(a, &pos), 3);
+    CHECK_EQ(pos, 1 * 8 + 1);                  /* first trip in wire order */
+
+    /* Nothing but a reserved bit: still shown, and treated as a trip - an
+     * unknown fault is not a reason to relax. */
+    memset(a, 0, sizeof a);
+    a[6] = 0x80;
+    CHECK_EQ(daly_fault_worst(a, &pos), 1);
+    CHECK_EQ(pos, 6 * 8 + 7);
+}
+
+static void test_warnings_name_bms_faults(void)
+{
+    system_model_t m;
+    warning_set_t s;
+    char buf[64];
+
+    /* Level 1: a warning, named, and not claimed to have tripped. */
+    make_healthy(&m);
+    m.pack[0].alarm_active = true;
+    m.pack[0].alarms[0]    = 0x01;
+    warnings_evaluate(&m, &s);
+    CHECK(has_code(&s, WARN_BMS_FAULT, 1));
+    CHECK(!warnings_any_alarm(&s));
+    warnings_format(&s.item[0], buf, sizeof buf);
+    CHECK(strstr(buf, "cell voltage high") != NULL);
+    CHECK(strstr(buf, "tripped") == NULL);
+
+    /* Level 2 alongside it: an alarm, the trip is the one shown, and the
+     * other set bit is counted rather than dropped. */
+    m.pack[0].alarms[0] = 0x03;
+    warnings_evaluate(&m, &s);
+    CHECK(warnings_any_alarm(&s));
+    warnings_format(&s.item[0], buf, sizeof buf);
+    CHECK(strstr(buf, "PACK 1") != NULL);
+    CHECK(strstr(buf, "cell voltage high, tripped") != NULL);
+    CHECK(strstr(buf, "(+1)") != NULL);
+}
+
 static void test_poller_tolerates_zero_slow_divider(void)
 {
     system_model_t m;
@@ -1171,6 +1266,9 @@ int main(void)
         { "warnings: cell-count ref",    test_warnings_cell_count_reference },
         { "0x95 scratch cleared offline",test_multiframe_scratch_cleared_on_offline },
         { "poller: slow_divider 0",      test_poller_tolerates_zero_slow_divider },
+        { "0x98 fault names",            test_fault_names },
+        { "0x98 worst fault",            test_fault_worst },
+        { "warnings: named BMS faults",  test_warnings_name_bms_faults },
         { "warnings: formatting",        test_warnings_formatting },
     };
 

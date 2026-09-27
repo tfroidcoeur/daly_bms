@@ -1,5 +1,6 @@
 #include "daly_proto.h"
 
+#include <stdio.h>
 #include <string.h>
 
 static uint16_t be16(const uint8_t *p) { return (uint16_t)((p[0] << 8) | p[1]); }
@@ -278,5 +279,97 @@ bool daly_apply_frame(bms_pack_t *pack, uint8_t cmd, const uint8_t d[8])
 
     default:
         return false;
+    }
+}
+
+/* --- 0x98 fault bits ---------------------------------------------------------
+ *
+ * Daly's own terms, where they are less plain, in the right-hand comments.
+ */
+
+/* Bytes 0-3: one name per level-1/level-2 pair, so index = byte * 4 + bit / 2. */
+static const char *const k_level_pairs[4][4] = {
+    { "cell voltage high",   "cell voltage low",    /* cell volt high/low     */
+      "pack voltage high",   "pack voltage low" },  /* sum volt high/low      */
+    { "charge temp high",    "charge temp low",
+      "discharge temp high", "discharge temp low" },
+    { "charge overcurrent",  "discharge overcurrent",
+      "SoC high",            "SoC low" },
+    { "cell voltage spread", "temperature spread",  /* diff volt / diff temp  */
+      NULL,                  NULL },                /* bits 4-7 reserved      */
+};
+
+/* Bytes 4-6: one name per bit. */
+static const char *const k_faults[3][8] = {
+    { "charge MOSFET hot",          "discharge MOSFET hot",
+      "charge MOSFET sensor fault", "discharge MOSFET sensor fault",
+      "charge MOSFET stuck on",     "discharge MOSFET stuck on",  /* "adhesion" */
+      "charge MOSFET open",         "discharge MOSFET open" },
+    { "AFE chip fault",             "cell voltage sense lost",    /* "collect dropped" */
+      "cell temp sensor fault",     "EEPROM fault",
+      "RTC fault",                  "precharge failed",
+      "communication fault",        "internal comms fault" },
+    { "current sensor fault",       "pack voltage sense fault",
+      "short circuit protection",   "low voltage, charge blocked",
+      NULL, NULL, NULL, NULL },                                   /* reserved */
+};
+
+const char *daly_fault_name(uint8_t byte, uint8_t bit)
+{
+    if (bit > 7) {
+        return NULL;
+    }
+    if (byte < 4) {
+        return k_level_pairs[byte][bit / 2];
+    }
+    if (byte < BMS_ALARM_BYTES) {
+        return k_faults[byte - 4][bit];
+    }
+    return NULL;
+}
+
+bool daly_fault_is_trip(uint8_t byte, uint8_t bit)
+{
+    /* In the level pairs, the odd bit is level 2. */
+    return byte >= 4 || (bit & 1u);
+}
+
+uint8_t daly_fault_worst(const uint8_t alarms[BMS_ALARM_BYTES], uint8_t *pos)
+{
+    uint8_t count = 0;
+    int     trip = -1, warn = -1;
+
+    for (uint8_t byte = 0; byte < BMS_ALARM_BYTES; byte++) {
+        for (uint8_t bit = 0; bit < 8; bit++) {
+            if (!(alarms[byte] & (1u << bit))) {
+                continue;
+            }
+            count++;
+            const bool is_trip = daly_fault_is_trip(byte, bit) ||
+                                 daly_fault_name(byte, bit) == NULL;
+            if (is_trip && trip < 0) {
+                trip = byte * 8 + bit;
+            } else if (!is_trip && warn < 0) {
+                warn = byte * 8 + bit;
+            }
+        }
+    }
+    if (count) {
+        *pos = (uint8_t)(trip >= 0 ? trip : warn);
+    }
+    return count;
+}
+
+void daly_fault_describe(uint8_t pos, char *buf, size_t n)
+{
+    const uint8_t byte = pos / 8, bit = pos % 8;
+    const char *name = byte < BMS_ALARM_BYTES ? daly_fault_name(byte, bit) : NULL;
+
+    if (name == NULL) {
+        snprintf(buf, n, "fault byte %u bit %u", byte, bit);
+    } else if (byte < 4 && daly_fault_is_trip(byte, bit)) {
+        snprintf(buf, n, "%s, tripped", name);   /* level 2 of a pair */
+    } else {
+        snprintf(buf, n, "%s", name);
     }
 }

@@ -97,7 +97,17 @@ static void print_model(const system_model_t *m)
             printf("\n");
         }
         if (p->alarm_active) {
-            printf("              ALARM %02X %02X %02X %02X %02X %02X %02X\n",
+            /* Every set bit by name, then the raw bytes: this is the
+             * diagnostic view, so it shows both. */
+            printf("              FAULT");
+            for (uint8_t pos = 0; pos < BMS_ALARM_BYTES * 8; pos++) {
+                if (p->alarms[pos / 8] & (1u << (pos % 8))) {
+                    char what[40];
+                    daly_fault_describe(pos, what, sizeof what);
+                    printf("  %s;", what);
+                }
+            }
+            printf("  [%02X %02X %02X %02X %02X %02X %02X]\n",
                    p->alarms[0], p->alarms[1], p->alarms[2], p->alarms[3],
                    p->alarms[4], p->alarms[5], p->alarms[6]);
         }

@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "daly_proto.h"
 #include "ui.h"
 
 #define SOC_BAR_X    10
@@ -31,6 +32,11 @@
 UI_STATIC_ASSERT(sizeof "79.80 V  -100.0 A" - 1 <= COL1_CHARS, pack_col1);
 UI_STATIC_ASSERT(sizeof "-25..-25 C  (16)" - 1 <= COL2_CHARS, pack_col2);
 UI_STATIC_ASSERT(sizeof "280.0 Ah 9999 cy" - 1 <= COL2_CHARS, pack_capacity);
+
+/* The footer runs from COL1_X to the content edge, at UI_FONT_S_B. The longest
+ * fault name, with the largest count seven bytes of flags can produce. */
+UI_STATIC_ASSERT(sizeof "FAULT discharge MOSFET sensor fault (+55)" - 1 <=
+                 (UI_CONTENT_W - COL1_X) / UI_FONT_S_W, pack_fault_fits);
 
 typedef struct {
     lv_obj_t *bar;
@@ -159,12 +165,20 @@ void ui_page_pack_update(uint8_t slot, const bms_pack_t *p)
     ui_set_text(v->state, p->charge_state == 1 ? "charging"
                         : (p->charge_state == 2 ? "discharging" : "idle"));
 
-    if (p->alarm_active) {
-        snprintf(buf, sizeof buf, "ALARM %02X %02X %02X %02X %02X %02X %02X",
-                 p->alarms[0], p->alarms[1], p->alarms[2], p->alarms[3],
-                 p->alarms[4], p->alarms[5], p->alarms[6]);
+    /* The BMS's own worst fault by name, with any others counted. The raw
+     * bytes are the raw logger's job; on the glass a name is what helps. */
+    uint8_t pos;
+    const uint8_t faults = p->alarm_active ? daly_fault_worst(p->alarms, &pos) : 0;
+    if (faults) {
+        char what[40];
+        daly_fault_describe(pos, what, sizeof what);
+        if (faults > 1) {
+            snprintf(buf, sizeof buf, "FAULT %s (+%u)", what, faults - 1);
+        } else {
+            snprintf(buf, sizeof buf, "FAULT %s", what);
+        }
     } else {
-        snprintf(buf, sizeof buf, "no alarms");
+        snprintf(buf, sizeof buf, "no faults");
     }
     ui_set_text(v->foot, buf);
 }

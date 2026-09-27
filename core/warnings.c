@@ -1,5 +1,7 @@
 #include "warnings.h"
 
+#include "daly_proto.h"
+
 #include <stdio.h>
 #include <string.h>
 
@@ -115,17 +117,20 @@ void warnings_evaluate(const system_model_t *m, warning_set_t *out)
             push(out, WARN_CELL_SPREAD, WARN_LEVEL_WARN, p->addr, spread, 0);
         }
 
-        if (p->alarm_active) {
-            /* Report the first flag byte that is set; the pack page shows all
-             * seven. We do not name specific faults until the bit meanings have
-             * been confirmed against real hardware. */
-            for (uint8_t b = 0; b < BMS_ALARM_BYTES; b++) {
-                if (p->alarms[b]) {
-                    push(out, WARN_BMS_FAULT, WARN_LEVEL_ALARM, p->addr,
-                         b, p->alarms[b]);
-                    break;
-                }
-            }
+        /*
+         * The BMS's own fault flags, by name. One line per pack - the worst
+         * bit, with the rest counted - and its level follows Daly's: a level-1
+         * flag is a warning, a level-2 flag or a hardware fault means the BMS
+         * has acted, and that is an alarm.
+         */
+        uint8_t fault_pos;
+        const uint8_t faults = p->alarm_active
+                             ? daly_fault_worst(p->alarms, &fault_pos) : 0;
+        if (faults) {
+            const bool trip = daly_fault_is_trip(fault_pos / 8, fault_pos % 8) ||
+                              daly_fault_name(fault_pos / 8, fault_pos % 8) == NULL;
+            push(out, WARN_BMS_FAULT, trip ? WARN_LEVEL_ALARM : WARN_LEVEL_WARN,
+                 p->addr, fault_pos, faults - 1);
         }
 
         if (p->soc_valid && p->soc_pct_x10 <= WARN_SOC_CRIT_PCT_X10) {
@@ -224,10 +229,19 @@ void warnings_format(const warning_t *w, char *buf, size_t n)
     case WARN_CELL_SPREAD:
         snprintf(buf, n, "%s  cell spread %ld mV", who, (long)w->a);
         break;
-    case WARN_BMS_FAULT:
-        snprintf(buf, n, "%s  BMS fault flags [%ld]=0x%02lX",
-                 who, (long)w->a, (long)w->b);
+    case WARN_BMS_FAULT: {
+        /* a: the fault's bit position, b: how many more bits are set. */
+        char what[40];
+        daly_fault_describe((w->a >= 0 && w->a < BMS_ALARM_BYTES * 8)
+                                ? (uint8_t)w->a : 0xFF,
+                            what, sizeof what);
+        if (w->b > 0) {
+            snprintf(buf, n, "%s  %s (+%ld)", who, what, (long)w->b);
+        } else {
+            snprintf(buf, n, "%s  %s", who, what);
+        }
         break;
+    }
     case WARN_SOC_LOW:
         snprintf(buf, n, "%s  SoC %ld.%ld %% low",
                  who, (long)w->a / 10, (long)w->a % 10);

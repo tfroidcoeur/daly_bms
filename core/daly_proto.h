@@ -14,6 +14,7 @@
 #define DALY_PROTO_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "bms_model.h"
@@ -63,6 +64,35 @@ bool daly_decode_id(uint32_t id, uint8_t *cmd, uint8_t *src_addr);
  * identified, and shows cells one polling round later than it otherwise would.
  */
 bool daly_apply_frame(bms_pack_t *pack, uint8_t cmd, const uint8_t data[8]);
+
+/*
+ * 0x98 fault bits, by position: byte * 8 + bit, over the seven flag bytes.
+ *
+ * Names are plain-language renderings of Daly's own protocol document V1.0;
+ * dbus-serialbattery groups the bytes identically and agrees bit for bit where
+ * it decodes them. In bytes 0-3 the bits come in pairs, level 1 then level 2:
+ * level 1 is Daly's warning, level 2 its protection trip. Bytes 4-6 are
+ * hardware faults and count as a trip.
+ */
+
+/* Name of one fault bit, or NULL where Daly marks it reserved. Both bits of a
+ * level pair share a name; daly_fault_is_trip() tells them apart. */
+const char *daly_fault_name(uint8_t byte, uint8_t bit);
+
+/* True if the bit means the BMS has acted rather than merely warned. */
+bool daly_fault_is_trip(uint8_t byte, uint8_t bit);
+
+/*
+ * Choose the one bit worth a line: the first trip in wire order, else the first
+ * warning. A reserved bit counts as a trip - an unknown fault is not a reason
+ * to relax. Returns how many bits are set in all; `*pos` is written only if
+ * that is not zero.
+ */
+uint8_t daly_fault_worst(const uint8_t alarms[BMS_ALARM_BYTES], uint8_t *pos);
+
+/* One short line for the fault at `pos`: "cell voltage high, tripped",
+ * "EEPROM fault", or "fault byte 3 bit 4" for a bit with no name. */
+void daly_fault_describe(uint8_t pos, char *buf, size_t n);
 
 /*
  * Which way Daly's current points once the 30000 bias is removed: +1 if above

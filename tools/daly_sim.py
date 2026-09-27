@@ -25,7 +25,7 @@ Scenarios:
     weak-cell   pack 2 has one cell drifting low, spread widens over time
     offline     pack 3 stops answering after 15 s, returns after another 20 s
     charging    the bank is on charge, SoC rising
-    alarm       pack 1 raises a cell-overvoltage alarm flag
+    alarm       pack 1 raises a level-1 cell voltage high flag - a BMS warning
     faults      several at once: a pack voltage mismatch, a BMS fault flag, a
                 badly drifted cell, an over-temperature pack and a low SoC -
                 enough to overflow the two footer lines and exercise the
@@ -219,10 +219,10 @@ def apply_scenario(name, packs):
     if name == "weak-cell":
         packs[1].weak_cell = (6, 120)      # pack 2, cell 7, drifting 120 mV low
     elif name == "alarm":
-        packs[0].alarm[0] = 0x01           # cell overvoltage, byte 0 bit 0
+        packs[0].alarm[0] = 0x01           # cell voltage high, level 1 (a warning)
     elif name == "faults":
         # One of each kind, so the footer has to prioritise and count.
-        packs[0].alarm[0] = 0x02           # a BMS fault flag
+        packs[0].alarm[0] = 0x02           # cell voltage high, level 2 (tripped)
         packs[0].cell_offset_mv = 45       # ~0.7 V above the others: mismatch
         packs[1].weak_cell = (6, 220)      # cell 7 badly adrift
         packs[1].weak_ramp_s = 2.0         # develops immediately
