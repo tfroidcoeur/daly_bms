@@ -27,7 +27,8 @@ choose: it works the base out from the traffic. See
 
 ### Which one real firmware follows
 
-On both disputed rows, **the community layout, almost certainly.** Daly never
+On both disputed rows, **the community layout** - confirmed for the frame
+numbering on this project's own pack (see the next section). Daly never
 revised them: the UART/485 document V1.2 (2020-12-22, which revises V1.0 and
 shares the same `0x90`-`0x98` payloads) still says 0-based and reserved. Every
 driver written against real hardware disagrees with the document:
@@ -54,6 +55,23 @@ them - see the note under that command.
 Everything here still wants checking against real hardware. The raw frame logger
 (`CONFIG_BMS_RAW_LOGGER`, and `--raw` on the host simulator) exists for that, and
 [bring-up-usb-can.md](bring-up-usb-can.md) says what to compare against what.
+
+### Observed on real hardware
+
+First contact, 2026-09-27: one new pack, 24S, factory address `0x01`, over an
+IXXAT USB-to-CAN V2 at 250 kbit/s. It was charging at about 12 A at 100 % SoC.
+249 requests, 224 replies, no bus errors.
+
+| Question | Answer on this pack |
+|---|---|
+| Frame numbering, `0x95` and `0x96` | **1-based** - bursts run `01`..`08`, and `0x96`'s single frame is `01` |
+| Sum of the 24 cells vs `0x90` | 81.156 V vs 81.10 V - agrees at `0x90`'s 0.1 V resolution |
+| `0x91` extremes vs the cell array | max 3403 mV #4, min 3371 mV #13 - exactly where the decoder put them |
+| Current direction | `0x93` says charging and the current decodes positive: the default `DALY_CURRENT_SIGN` agrees. Load test still to do |
+| `0x94` bytes 5-7 | `00 00 41`. The app shows **0 cycles** on these new packs, which fits a cycle count of 0 in bytes 5-6 but cannot yet tell it from reserved bytes; the first real cycle settles it. Byte 7 = `0x41` is unexplained and not the cycle count |
+| `0x94` charger status | reads 0 while `0x93` says charging - this model may not detect its charger |
+| `0x97` balancing | **open**. A single bit, byte 1 bit 2, held steady for a minute. That is cell 11 read LSB-first (as here and in maland16) or cell 14 read MSB-first - and neither is a high cell: they rank about 16th and 10th of 24, while 4, 8 and 19 were highest throughout. Daly's app shows which cell it balances; that is the check |
+| `0x98` | all zero - nothing to test the names against yet |
 
 ## Physical layer
 
@@ -257,6 +275,14 @@ unit test.
 
 Bit 0 = cell 1 balancing, through to bit 47 = cell 48. Bits 48-63 reserved.
 0 = closed, 1 = open.
+
+**The bit order is not settled.** This project and maland16 read it LSB-first,
+byte by byte (cell = byte × 8 + bit + 1); dbus-serialbattery reads a big-endian
+word from bit 48 down, which puts cell 1 in byte 1 and is reported not to work
+(its issue #752). On real hardware one bit - byte 1, bit 2 - pointed at neither
+of the high cells under either reading; see
+[Observed on real hardware](#observed-on-real-hardware). Only the balancing
+marker on the cells page depends on this.
 
 ### `0x98` - failure / alarm flags
 

@@ -15,6 +15,7 @@
  * every field against Daly's own app before trusting the decoded view.
  */
 #include <signal.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -179,12 +180,34 @@ static void annotate(uint8_t cmd, const uint8_t *d, char *buf, size_t n)
                                  ((uint32_t)d[6] << 8) | d[7]),
                  d[3]);
         break;
-    case DALY_CMD_BALANCE:
-    case DALY_CMD_FAULTS:
-        /* Bit meanings are not confirmed against hardware; show them as bits
-         * rather than inventing names for them. */
-        snprintf(buf, n, "bits (meanings unconfirmed)");
+    case DALY_CMD_BALANCE: {
+        /* Bit N of the little-endian payload is cell N+1. */
+        size_t at = (size_t)snprintf(buf, n, "balancing:");
+        bool any = false;
+        for (uint8_t c = 0; c < 64 && at < n; c++) {
+            if (d[c / 8] & (1u << (c % 8))) {
+                at += (size_t)snprintf(buf + at, n - at, " %u", c + 1);
+                any = true;
+            }
+        }
+        if (!any) {
+            snprintf(buf, n, "balancing: none");
+        }
         break;
+    }
+    case DALY_CMD_FAULTS: {
+        /* Named from Daly's table, worst first; byte 7 is a code, not bits. */
+        uint8_t pos;
+        const uint8_t count = daly_fault_worst(d, &pos);
+        if (count == 0) {
+            snprintf(buf, n, "no faults");
+        } else {
+            char what[40];
+            daly_fault_describe(pos, what, sizeof what);
+            snprintf(buf, n, "%s%s", what, count > 1 ? " (+more)" : "");
+        }
+        break;
+    }
     case DALY_CMD_CELL_TEMPS:
         snprintf(buf, n, "frame %u: %d %d %d %d %d %d %d C", d[0],
                  daly_decode_temp_c(d[1]), daly_decode_temp_c(d[2]),
