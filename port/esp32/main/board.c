@@ -203,8 +203,21 @@ bool board_lvgl_start(void)
 
 /* ---- input: the onboard KEY, plus two capacitive pads -------------------- */
 
-static touch_sensor_handle_t  g_touch;
-static touch_channel_handle_t g_pad_next, g_pad_drill;
+static touch_sensor_handle_t g_touch;
+
+/* One pad: its channel, how hard it must be pressed, and where it is in the
+ * press - debounce and hysteresis both need memory between polls. */
+typedef struct {
+    const char            *name;
+    touch_channel_handle_t chan;
+    uint32_t               press_pct;   /* BOARD_TOUCH_*_PCT */
+    bool                   active;      /* latched until the release edge */
+    bool                   pending;     /* above threshold, not yet for long enough */
+    int64_t                above_since; /* us, valid while pending */
+} pad_t;
+
+static pad_t g_pad_next  = { .name = "next ", .press_pct = BOARD_TOUCH_NEXT_PCT  };
+static pad_t g_pad_drill = { .name = "drill", .press_pct = BOARD_TOUCH_DRILL_PCT };
 
 /*
  * Bring up the touch controller for the two pads.
@@ -253,9 +266,9 @@ static void touch_init(void)
         .init_charge_volt = TOUCH_INIT_CHARGE_VOLT_DEFAULT,
     };
     if (touch_sensor_new_channel(g_touch, BOARD_TOUCH_NEXT_CHAN, &chan,
-                                 &g_pad_next) != ESP_OK ||
+                                 &g_pad_next.chan) != ESP_OK ||
         touch_sensor_new_channel(g_touch, BOARD_TOUCH_DRILL_CHAN, &chan,
-                                 &g_pad_drill) != ESP_OK) {
+                                 &g_pad_drill.chan) != ESP_OK) {
         ESP_LOGW(TAG, "touch channels unavailable; KEY only");
         g_touch = NULL;
         return;
@@ -272,15 +285,17 @@ static void touch_init(void)
     }
     ESP_ERROR_CHECK(touch_sensor_start_continuous_scanning(g_touch));
 
-    /* These two numbers are what BOARD_TOUCH_THRESH_DIV has to be chosen
-     * against for real pads. */
+    /* These two numbers are what the BOARD_TOUCH_*_PCT thresholds have to be
+     * chosen against for real pads. */
     vTaskDelay(pdMS_TO_TICKS(100));
     uint32_t bm_next = 0, bm_drill = 0;
-    touch_channel_read_data(g_pad_next, TOUCH_CHAN_DATA_TYPE_BENCHMARK, &bm_next);
-    touch_channel_read_data(g_pad_drill, TOUCH_CHAN_DATA_TYPE_BENCHMARK, &bm_drill);
-    ESP_LOGI(TAG, "touch up: pad benchmarks next=%" PRIu32 " drill=%" PRIu32
-                  " (threshold = benchmark/%d)",
-             bm_next, bm_drill, BOARD_TOUCH_THRESH_DIV);
+    touch_channel_read_data(g_pad_next.chan, TOUCH_CHAN_DATA_TYPE_BENCHMARK,
+                            &bm_next);
+    touch_channel_read_data(g_pad_drill.chan, TOUCH_CHAN_DATA_TYPE_BENCHMARK,
+                            &bm_drill);
+    ESP_LOGI(TAG, "touch up: pad benchmarks next=%" PRIu32 " (%d %%) drill=%"
+                  PRIu32 " (%d %%)",
+             bm_next, BOARD_TOUCH_NEXT_PCT, bm_drill, BOARD_TOUCH_DRILL_PCT);
 }
 
 void board_key_init(void)
@@ -297,28 +312,71 @@ void board_key_init(void)
 }
 
 /*
- * A pad counts as touched when its lightly-filtered reading rises far enough
- * above its own slowly-tracked benchmark. Relative, not absolute: the benchmark
- * depends on pad size and overlay thickness and moves with the weather, so an
- * absolute figure would need retuning for every build and every warm afternoon.
+ * Read one pad: how far its lightly-filtered reading sits above its own slowly
+ * tracked benchmark, and the two thresholds that delta is judged against.
+ * Relative, not absolute: the benchmark depends on pad size and overlay
+ * thickness and moves with the weather, so an absolute figure would need
+ * retuning for every build and every warm afternoon.
  */
-static bool pad_pressed(touch_channel_handle_t pad, bool *was_active)
+static bool pad_read(const pad_t *p, uint32_t *delta, uint32_t *press,
+                     uint32_t *release, uint32_t *benchmark)
 {
-    uint32_t smooth = 0, benchmark = 0;
+    uint32_t smooth = 0;
 
-    if (pad == NULL ||
-        touch_channel_read_data(pad, TOUCH_CHAN_DATA_TYPE_SMOOTH, &smooth) != ESP_OK ||
-        touch_channel_read_data(pad, TOUCH_CHAN_DATA_TYPE_BENCHMARK,
-                                &benchmark) != ESP_OK) {
+    if (p->chan == NULL ||
+        touch_channel_read_data(p->chan, TOUCH_CHAN_DATA_TYPE_SMOOTH,
+                                &smooth) != ESP_OK ||
+        touch_channel_read_data(p->chan, TOUCH_CHAN_DATA_TYPE_BENCHMARK,
+                                benchmark) != ESP_OK) {
+        return false;
+    }
+    *delta   = smooth > *benchmark ? smooth - *benchmark : 0;
+    *press   = *benchmark / 100 * p->press_pct;
+    *release = *press / 100 * BOARD_TOUCH_RELEASE_PCT;
+    return true;
+}
+
+/*
+ * True once per touch, on the edge where it is accepted.
+ *
+ * Three rules, each for a different way a bare pad lies:
+ *   - its own threshold, because the two pads differ 36-fold in signal;
+ *   - debounce: above the threshold for BOARD_TOUCH_DEBOUNCE_MS unbroken before
+ *     it counts, so a brush or a spike on the lead is not a press;
+ *   - hysteresis: once active, it stays active until the delta falls to
+ *     BOARD_TOUCH_RELEASE_PCT of the threshold, so a finger hovering at the
+ *     edge is one press rather than a burst.
+ */
+static bool pad_pressed(pad_t *p, int64_t now)
+{
+    uint32_t delta, press, release, benchmark;
+
+    if (!pad_read(p, &delta, &press, &release, &benchmark)) {
         return false;
     }
 
-    const bool active = smooth > benchmark &&
-                        (smooth - benchmark) > benchmark / BOARD_TOUCH_THRESH_DIV;
-    /* Report the leading edge only, so resting a finger is one event. */
-    const bool pressed = active && !*was_active;
-    *was_active = active;
-    return pressed;
+    if (p->active) {
+        if (delta < release) {
+            p->active = false;
+        }
+        return false;
+    }
+
+    if (delta <= press) {
+        p->pending = false;                  /* dipped: start the clock again */
+        return false;
+    }
+    if (!p->pending) {
+        p->pending     = true;
+        p->above_since = now;
+        return false;
+    }
+    if (now - p->above_since < (int64_t)BOARD_TOUCH_DEBOUNCE_MS * 1000) {
+        return false;
+    }
+    p->pending = false;
+    p->active  = true;
+    return true;
 }
 
 void board_touch_report(void)
@@ -328,27 +386,21 @@ void board_touch_report(void)
         return;
     }
 
-    struct { const char *name; touch_channel_handle_t pad; } pads[] = {
-        { "next ", g_pad_next  },
-        { "drill", g_pad_drill },
-    };
+    const pad_t *pads[] = { &g_pad_next, &g_pad_drill };
 
     for (unsigned i = 0; i < sizeof pads / sizeof pads[0]; i++) {
-        uint32_t smooth = 0, benchmark = 0;
-        if (pads[i].pad == NULL ||
-            touch_channel_read_data(pads[i].pad, TOUCH_CHAN_DATA_TYPE_SMOOTH,
-                                    &smooth) != ESP_OK ||
-            touch_channel_read_data(pads[i].pad, TOUCH_CHAN_DATA_TYPE_BENCHMARK,
-                                    &benchmark) != ESP_OK) {
-            ESP_LOGE(TAG, "  %s: channel unavailable", pads[i].name);
+        uint32_t delta, press, release, benchmark;
+        if (!pad_read(pads[i], &delta, &press, &release, &benchmark)) {
+            ESP_LOGE(TAG, "  %s: channel unavailable", pads[i]->name);
             continue;
         }
-        const int32_t delta = (int32_t)smooth - (int32_t)benchmark;
-        const uint32_t need = benchmark / BOARD_TOUCH_THRESH_DIV;
-        ESP_LOGI(TAG, "  %s bench %7" PRIu32 "  smooth %7" PRIu32
-                      "  delta %+6" PRId32 "  need %+6" PRIu32 "  %s",
-                 pads[i].name, benchmark, smooth, delta, need,
-                 delta > 0 && (uint32_t)delta > need ? "** TOUCHED **" : "");
+        /* "press" is the edge a touch must clear, "release" the one it must
+         * fall back under - so a hover shows as a delta between the two. */
+        ESP_LOGI(TAG, "  %s bench %7" PRIu32 "  delta %7" PRIu32
+                      "  press %6" PRIu32 "  release %6" PRIu32 "  %s",
+                 pads[i]->name, benchmark, delta, press, release,
+                 delta > press   ? "** TOUCHED **"
+                 : delta > release ? "(between edges)" : "");
     }
 }
 
@@ -357,7 +409,6 @@ bool board_key_poll(bool *long_press)
     static bool     was_down;
     static int64_t  down_at;
     static int64_t  last_edge;
-    static bool     next_active, drill_active;
 
     const int64_t now = esp_timer_get_time();
 
@@ -367,11 +418,11 @@ bool board_key_poll(bool *long_press)
      * has, so a second pad replaces the 800 ms hold rather than adding
      * anything for ui.c to learn.
      */
-    if (pad_pressed(g_pad_next, &next_active)) {
+    if (pad_pressed(&g_pad_next, now)) {
         *long_press = false;
         return true;
     }
-    if (pad_pressed(g_pad_drill, &drill_active)) {
+    if (pad_pressed(&g_pad_drill, now)) {
         *long_press = true;
         return true;
     }

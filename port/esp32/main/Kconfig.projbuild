@@ -40,13 +40,16 @@ config BMS_CAN_LOOP_TEST
 config BMS_TOUCH_MONITOR
     bool "Capacitive touch monitor"
     help
-      Prints both touch pads' benchmark, smoothed reading and the margin to the
-      activation threshold, several times a second, and does nothing else.
+      Prints each touch pad's benchmark, its delta above it, and the press and
+      release edges that delta is judged against, several times a second, and
+      does nothing else.
 
-      Touch a pad and watch the numbers. A delta that never moves means the pad
-      or its wiring, not the threshold; a delta that moves but never reaches
-      "need" means BOARD_TOUCH_THRESH_DIV is too high for this pad size and
-      overlay.
+      Touch each pad, then hover near it without touching, and watch the
+      delta. A delta that never moves means the pad or its wiring, not the
+      threshold. A touch that never reaches "press" means that pad's
+      BOARD_TOUCH_*_PCT is too high for its size and overlay; a hover that
+      does reach it means too low. Aim for the press edge well above the
+      hover and well below the touch.
 
 endchoice
 

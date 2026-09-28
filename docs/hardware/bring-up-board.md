@@ -116,11 +116,19 @@ pack will read `NO DATA` - nothing is on the bus yet. That is the correct
 display, and it confirms the whole chain: input, LVGL lock, page switch, repaint.
 
 The two capacitive pads do the same two things, one each, and need no hold. If
-they do nothing, build the **touch monitor** mode (menuconfig -> Daly BMS
-monitor -> Build mode) rather than guessing: it prints each pad's benchmark,
-smoothed reading and margin, which separates a pad that is not wired from a
-threshold that is set too high. A benchmark pinned at 4194303 means the channel
-is not being sampled at all.
+they do nothing - or fire when nobody touches them - build the **touch monitor**
+mode (menuconfig -> Daly BMS monitor -> Build mode) rather than guessing. It
+prints each pad's benchmark, its delta, and the press and release edges the delta
+is judged against, which separates a pad that is not wired from a threshold set
+wrong in either direction. A benchmark pinned at 4194303 means the channel is not
+being sampled at all.
+
+Each pad has its own threshold (`BOARD_TOUCH_NEXT_PCT`, `BOARD_TOUCH_DRILL_PCT` in
+`board.h`), because two pads of copper tape can differ many times over in how
+hard a touch lands. Touch each one, then hover a hand near it without touching:
+the press edge wants to sit well above the hover and well below the touch. The
+defaults are for **bare copper**; an overlay shrinks every delta, so re-measure
+once one is fitted.
 
 If a KEY press does nothing, the press is being dropped rather than misread: the
 latch in `main.c` retries every pass until the LVGL lock is free, so a dead

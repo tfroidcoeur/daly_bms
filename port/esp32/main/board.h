@@ -65,33 +65,51 @@
 #define BOARD_TOUCH_DRILL_CHAN  2                 /* P1 pin 9  - cell detail */
 
 /*
- * Activation threshold, as a fraction of each pad's own benchmark: active when
- * (smooth - benchmark) > benchmark / N. Relative rather than absolute because
- * the benchmark depends on pad size and overlay thickness, and drifts with
- * temperature and humidity - the driver tracks that drift for us.
+ * Activation thresholds, one per pad, as a percentage of that pad's own
+ * benchmark: a pad goes active when (smooth - benchmark) exceeds benchmark *
+ * PCT / 100. Relative rather than absolute because the benchmark depends on pad
+ * size and overlay thickness, and drifts with temperature and humidity - the
+ * driver tracks that drift for us.
  *
- * Lower N = more sensitive. board_key_init() logs each pad's benchmark at boot,
- * and the touch-monitor build mode prints the live margin, so this is set from
- * measurement rather than taste.
+ * Higher = less sensitive. board_key_init() logs each pad's benchmark at boot,
+ * and the touch-monitor build mode prints the live delta against both edges, so
+ * these are set from measurement rather than taste.
  *
- * Measured on copper tape, 2026-09-26:
+ * Measured on bare copper tape, no overlay, 2026-09-26:
  *
  *            benchmark   touched    crosstalk from the other pad
  *   next        30200    +190000    -
  *   drill       28300    +5200      +242
  *
- * Crosstalk sets the floor, not noise. Touching `next` puts +242 on `drill`,
- * so drill's threshold has to stay well clear of that - which at benchmark
- * 28300 means roughly 500 or more. At 2 % it needs 566: a light touch still
- * clears it about 9x over, and the crosstalk stays 2.3x below it.
+ * Per pad, because the pads differ by a factor of 36 in how hard a touch lands.
+ * A single shared 2 % left `next` firing about 300x over on a real touch, which
+ * is another way of saying it fired on a hand passing nearby. At 20 % it still
+ * clears a touch 30x over. `drill` is the weak pad: at 5 % it needs 1415, which
+ * a touch clears 3.7x over and the +242 of crosstalk from `next` stays 5.8x
+ * below.
  *
- * Going further is a hardware job rather than a tuning one. 1 % would need 283
- * against 242 of interference, which is not margin. To get more sensitivity
- * than this, move the pads further apart or enlarge the weaker one - drill
- * reads +5200 on a touch where next reads +190000, so it is the pad limiting
- * this, not the number below.
+ * These are for bare copper. An overlay - tape, the enclosure wall - shrinks
+ * every number in the table, touched deltas most of all, so re-measure with the
+ * touch monitor once it is fitted: expect both percentages to come down.
  */
-#define BOARD_TOUCH_THRESH_DIV  50                /* 2 % of benchmark */
+#define BOARD_TOUCH_NEXT_PCT    20
+#define BOARD_TOUCH_DRILL_PCT    5
+
+/*
+ * Hysteresis: once active, a pad stays active until its delta falls below this
+ * percentage of its activation threshold. Without it a finger that settles near
+ * the threshold - arriving, leaving, or resting lightly - crosses it several
+ * times and reads as several presses.
+ */
+#define BOARD_TOUCH_RELEASE_PCT 50
+
+/*
+ * Debounce: a pad must read above its threshold continuously for this long
+ * before it counts. Rejects a brush, a sleeve, a spike on the lead wire. Well
+ * under what a deliberate press takes, and the panel redraws far slower than
+ * this anyway, so it cannot be felt.
+ */
+#define BOARD_TOUCH_DEBOUNCE_MS 60
 
 /* Initialise SPI, the ST7305 panel, and LVGL. Returns the LVGL display. */
 lv_display_t *board_display_init(void);
