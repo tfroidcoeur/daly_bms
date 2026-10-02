@@ -123,12 +123,15 @@ is judged against, which separates a pad that is not wired from a threshold set
 wrong in either direction. A benchmark pinned at 4194303 means the channel is not
 being sampled at all.
 
-Each pad has its own threshold (`BOARD_TOUCH_NEXT_PCT`, `BOARD_TOUCH_DRILL_PCT` in
-`board.h`), because two pads of copper tape can differ many times over in how
-hard a touch lands. Touch each one, then hover a hand near it without touching:
-the press edge wants to sit well above the hover and well below the touch. The
-defaults are for **bare copper**; an overlay shrinks every delta, so re-measure
-once one is fitted.
+Each pad has its own threshold (`BOARD_TOUCH_NEXT_PERMILLE`,
+`BOARD_TOUCH_DRILL_PERMILLE` in `board.h`), because two pads of copper tape can
+differ many times over in how hard a touch lands. Touch each one, then hover a
+hand near it without touching: the press edge wants to sit well above the hover
+and well below the touch. The defaults are measured **through the PLA enclosure
+wall**; bare copper gives far larger deltas, so re-measure if the wall changes.
+With nobody near, the delta should sit within a few tens of zero and the
+benchmark should move now and then; a delta parked hundreds above zero means
+the benchmark has stopped tracking.
 
 If a KEY press does nothing, the press is being dropped rather than misread: the
 latch in `main.c` retries every pass until the LVGL lock is free, so a dead

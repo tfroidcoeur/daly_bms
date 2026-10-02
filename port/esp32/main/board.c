@@ -210,14 +210,49 @@ static touch_sensor_handle_t g_touch;
 typedef struct {
     const char            *name;
     touch_channel_handle_t chan;
-    uint32_t               press_pct;   /* BOARD_TOUCH_*_PCT */
+    uint32_t               press_pm;    /* BOARD_TOUCH_*_PERMILLE */
     bool                   active;      /* latched until the release edge */
     bool                   pending;     /* above threshold, not yet for long enough */
     int64_t                above_since; /* us, valid while pending */
 } pad_t;
 
-static pad_t g_pad_next  = { .name = "next ", .press_pct = BOARD_TOUCH_NEXT_PCT  };
-static pad_t g_pad_drill = { .name = "drill", .press_pct = BOARD_TOUCH_DRILL_PCT };
+static pad_t g_pad_next  = { .name = "next ", .press_pm = BOARD_TOUCH_NEXT_PERMILLE  };
+static pad_t g_pad_drill = { .name = "drill", .press_pm = BOARD_TOUCH_DRILL_PERMILLE };
+
+/* The two edges a pad's delta is judged against, for a given benchmark. */
+static void pad_edges(const pad_t *p, uint32_t benchmark, uint32_t *press,
+                      uint32_t *release)
+{
+    *press   = benchmark * p->press_pm / 1000;
+    *release = *press * BOARD_TOUCH_RELEASE_PCT / 100;
+}
+
+/*
+ * Hand the hardware a real active threshold: the pad's freeze edge, from the
+ * benchmark just measured.
+ *
+ * The benchmark filter stops tracking while the hardware considers a channel
+ * active, so a held finger is not calibrated away. With a threshold of 0 every
+ * reading above the benchmark counts as active - which is every other reading -
+ * and the benchmark froze at its first value and never moved again: `drill`
+ * crept 360 counts above it in minutes, over a third of the way to a press.
+ * At BOARD_TOUCH_FREEZE_PCT it tracks drift whenever nobody is near, and holds
+ * still from the moment a finger approaches.
+ *
+ * Reconfiguring needs the controller disabled, and resets the benchmark; the
+ * caller rescans afterwards.
+ */
+static void pad_set_hw_thresh(pad_t *p, const touch_channel_config_t *base)
+{
+    uint32_t benchmark = 0, press, release;
+
+    touch_channel_read_data(p->chan, TOUCH_CHAN_DATA_TYPE_BENCHMARK, &benchmark);
+    pad_edges(p, benchmark, &press, &release);
+
+    touch_channel_config_t cfg = *base;
+    cfg.active_thresh[0] = press * BOARD_TOUCH_FREEZE_PCT / 100;
+    ESP_ERROR_CHECK(touch_sensor_reconfig_channel(p->chan, &cfg));
+}
 
 /*
  * Bring up the touch controller for the two pads.
@@ -252,8 +287,8 @@ static void touch_init(void)
     ESP_ERROR_CHECK(touch_sensor_config_filter(g_touch, &filter));
 
     const touch_channel_config_t chan = {
-        /* We compare against the benchmark ourselves in board_key_poll(), so
-         * the hardware's own active threshold is left out of the way. */
+        /* A placeholder until there is a benchmark to set it from - see
+         * pad_set_hw_thresh(). Presses are still judged in board_key_poll(). */
         .active_thresh = { 0 },
         /*
          * These two must be set explicitly. Zero is a legal value for both and
@@ -283,9 +318,17 @@ static void touch_init(void)
     for (int i = 0; i < 8; i++) {
         touch_sensor_trigger_oneshot_scanning(g_touch, 2000);
     }
+
+    ESP_ERROR_CHECK(touch_sensor_disable(g_touch));
+    pad_set_hw_thresh(&g_pad_next, &chan);
+    pad_set_hw_thresh(&g_pad_drill, &chan);
+    ESP_ERROR_CHECK(touch_sensor_enable(g_touch));
+    for (int i = 0; i < 8; i++) {
+        touch_sensor_trigger_oneshot_scanning(g_touch, 2000);
+    }
     ESP_ERROR_CHECK(touch_sensor_start_continuous_scanning(g_touch));
 
-    /* These two numbers are what the BOARD_TOUCH_*_PCT thresholds have to be
+    /* These two numbers are what the BOARD_TOUCH_*_PERMILLE thresholds have to be
      * chosen against for real pads. */
     vTaskDelay(pdMS_TO_TICKS(100));
     uint32_t bm_next = 0, bm_drill = 0;
@@ -293,9 +336,10 @@ static void touch_init(void)
                             &bm_next);
     touch_channel_read_data(g_pad_drill.chan, TOUCH_CHAN_DATA_TYPE_BENCHMARK,
                             &bm_drill);
-    ESP_LOGI(TAG, "touch up: pad benchmarks next=%" PRIu32 " (%d %%) drill=%"
-                  PRIu32 " (%d %%)",
-             bm_next, BOARD_TOUCH_NEXT_PCT, bm_drill, BOARD_TOUCH_DRILL_PCT);
+    ESP_LOGI(TAG, "touch up: pad benchmarks next=%" PRIu32 " (%d permille) drill=%"
+                  PRIu32 " (%d permille)",
+             bm_next, BOARD_TOUCH_NEXT_PERMILLE, bm_drill,
+             BOARD_TOUCH_DRILL_PERMILLE);
 }
 
 void board_key_init(void)
@@ -330,9 +374,8 @@ static bool pad_read(const pad_t *p, uint32_t *delta, uint32_t *press,
                                 benchmark) != ESP_OK) {
         return false;
     }
-    *delta   = smooth > *benchmark ? smooth - *benchmark : 0;
-    *press   = *benchmark / 100 * p->press_pct;
-    *release = *press / 100 * BOARD_TOUCH_RELEASE_PCT;
+    *delta = smooth > *benchmark ? smooth - *benchmark : 0;
+    pad_edges(p, *benchmark, press, release);
     return true;
 }
 

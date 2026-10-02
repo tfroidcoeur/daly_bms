@@ -47,7 +47,7 @@ config BMS_TOUCH_MONITOR
       Touch each pad, then hover near it without touching, and watch the
       delta. A delta that never moves means the pad or its wiring, not the
       threshold. A touch that never reaches "press" means that pad's
-      BOARD_TOUCH_*_PCT is too high for its size and overlay; a hover that
+      BOARD_TOUCH_*_PERMILLE is too high for its size and overlay; a hover that
       does reach it means too low. Aim for the press edge well above the
       hover and well below the touch.
 
