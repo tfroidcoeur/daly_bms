@@ -1,14 +1,11 @@
 # Board bring-up: first flash of the ESP32-S3-RLCD-4.2
 
-The build steps live in the [README](../../README.md#building-for-the-board).
-This is what to do *after* the first `idf.py flash` - specifically, how to work
-out what is wrong when the panel does not light up, because **the display driver
-has never run on hardware**.
-
-Everything else has been exercised: the decoder, the model, the poller and the
-warnings are covered by 711 host checks, and the UI has been walked page by page
-in the simulator. `st7305.c` and the rotation in `board.c` are the parts with no
-evidence behind them at all.
+The build steps live in the
+[README](../../README.md#building-for-the-reference-board). This is what to do
+*after* the first `idf.py flash` - specifically, how to work out what is wrong
+when the panel does not light up. The decoder, model, poller and UI are covered
+by the host tests and the simulator, so on a new board the display driver and
+the rotation in `board.c` are the likely suspects.
 
 So bring the screen up **before** connecting anything to CAN. One unknown at a
 time.
@@ -127,11 +124,11 @@ Each pad has its own threshold (`BOARD_TOUCH_NEXT_PERMILLE`,
 `BOARD_TOUCH_DRILL_PERMILLE` in `board.h`), because two pads of copper tape can
 differ many times over in how hard a touch lands. Touch each one, then hover a
 hand near it without touching: the press edge wants to sit well above the hover
-and well below the touch. The defaults are measured **through the PLA enclosure
-wall**; bare copper gives far larger deltas, so re-measure if the wall changes.
-With nobody near, the delta should sit within a few tens of zero and the
-benchmark should move now and then; a delta parked hundreds above zero means
-the benchmark has stopped tracking.
+and well below the touch. The defaults are measured
+**through the PLA enclosure wall**; bare copper gives far larger deltas, so
+re-measure if the wall changes. With nobody near, the delta should sit within a
+few tens of zero and the benchmark should move now and then; a delta parked
+hundreds above zero means the benchmark has stopped tracking.
 
 If a KEY press does nothing, the press is being dropped rather than misread: the
 latch in `main.c` retries every pass until the LVGL lock is free, so a dead

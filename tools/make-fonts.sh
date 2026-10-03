@@ -8,11 +8,7 @@
 # u8g2_font_6x13_tf - which is what Waveshare's own U8g2 example for this board
 # draws with. On a 1 bpp reflective panel a font that was *designed* at one bit
 # beats any outline font rasterised down to one: every stem is exactly one or
-# two whole pixels, so nothing is left to a threshold decision. Run the sim with
-# SIM_FONT_SPECIMEN=1 to see it against the alternatives.
-#
-# Montserrat is still generated below because the specimen compares against it.
-# Only the fixed_* fonts are compiled into the firmware.
+# two whole pixels, so nothing is left to a threshold decision.
 #
 # misc-fixed ships as PCF, which lv_font_conv cannot read (it is built on
 # opentype.js and rejects the format outright), so those go through our own
@@ -23,11 +19,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 SRC=build/_deps/lvgl-src/scripts/built_in_font
-TTF="$SRC/Montserrat-Medium.ttf"
 AWESOME="$SRC/FontAwesome5-Solid+Brands+Regular.woff"
 X11=/usr/share/fonts/X11/misc
 
-if [ ! -f "$TTF" ]; then
+if [ ! -f "$AWESOME" ]; then
     echo "LVGL sources not fetched yet - run cmake -S . -B build first" >&2
     exit 1
 fi
@@ -54,7 +49,7 @@ echo "misc-fixed (the UI's fonts):"
 #
 # The last rung is 6x13 bold at 2x. misc-fixed's Latin strikes stop at 10x20,
 # and the one 12x24 in the package is a different (near-serif, JIS) design that
-# does not belong with the rest - see the specimen. Doubling keeps the family.
+# does not belong with the rest. Doubling keeps the family.
 while read -r STRIKE SIZE NAME SYMPX SCALE BOLD; do
     gunzip -c "$X11/$STRIKE.pcf.gz" > "$PCF/$STRIKE.pcf"
     [ "$BOLD" = "bold" ] && EMB=--embolden || EMB=
@@ -74,17 +69,6 @@ done <<'TABLE'
 10x20  20 fixed_10x20b   16 1 bold
 6x13B  13 fixed_6x13b_2x 10 2
 TABLE
-
-echo
-echo "Montserrat (specimen only):"
-for SZ in 12 14 16 20 28; do
-    npx --yes lv_font_conv@latest \
-        --no-compress --format lvgl --bpp 1 --size "$SZ" \
-        --font "$TTF"     -r "0x20-0x7F,0xB0" \
-        --font "$AWESOME" -r "$SYMBOLS" \
-        -o "ui/fonts/mont1_${SZ}.c" >/dev/null
-    printf '  mont1_%-8s %s bytes\n' "$SZ" "$(wc -c < "ui/fonts/mont1_${SZ}.c" | tr -d ' ')"
-done
 
 echo
 echo "declared in ui/fonts/fonts.h, which maps UI_FONT_* onto them"

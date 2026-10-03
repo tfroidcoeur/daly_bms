@@ -90,7 +90,6 @@ if(SDL2_FOUND)
         port/sim/main_sim.c
         port/sim/sdl_display.c
         port/sim/can_socketcan.c
-        port/sim/font_specimen.c
         ui/fonts/fixed_6x13.c
         ui/fonts/fixed_6x13b.c
         ui/fonts/fixed_7x14.c
@@ -100,11 +99,6 @@ if(SDL2_FOUND)
         ui/fonts/fixed_10x20.c
         ui/fonts/fixed_10x20b.c
         ui/fonts/fixed_6x13b_2x.c
-        ui/fonts/mont1_12.c
-        ui/fonts/mont1_14.c
-        ui/fonts/mont1_16.c
-        ui/fonts/mont1_20.c
-        ui/fonts/mont1_28.c
         ui/ui.c
         ui/page_overview.c
         ui/page_pack.c

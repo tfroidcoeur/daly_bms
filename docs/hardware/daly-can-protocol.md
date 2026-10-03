@@ -20,10 +20,10 @@ identifier layout. Two places differ, and both are called out in the tables:
 | `0x94` bytes 5-7 | **reserved** | cycle count in 5-6 | reads it, flags whether it was there |
 
 Neither disagreement is a rounding error. Pick the wrong frame base and the
-decisive frame of every burst is discarded, so the set never completes and **no
-cell data is ever published at all**. `core/daly_proto.c` therefore does not
-choose: it works the base out from the traffic. See
-[the frame numbering section](#frame-numbering-0-based-or-1-based) below.
+decisive frame of every burst is discarded, so the set never completes and
+**no cell data is ever published at all**. `core/daly_proto.c` therefore does
+not choose: it works the base out from the traffic. See [the frame numbering
+section](#frame-numbering-0-based-or-1-based) below.
 
 ### Which one real firmware follows
 
@@ -42,8 +42,8 @@ driver written against real hardware disagrees with the document:
 So expect `01` and a cycle count. The decoder copes with either, which costs a
 1-based pack one polling round at startup and nothing else.
 
-A third row is disputed and neither document settles it: **the direction of the
-current.** See `0x90` below.
+A third row is disputed and neither document settles it:
+**the direction of the current.** See `0x90` below.
 
 Newer Daly hardware also speaks a Modbus protocol (start byte `0xD2`) on its
 RS485 port. That does not touch CAN; dbus-serialbattery's CAN driver still uses
@@ -207,8 +207,8 @@ therefore how many `0x95` / `0x96` frames will arrive.
 
 Bytes 5-6 are the disputed field. `core/daly_proto.c` reads them as a u16 cycle
 count but sets `cycles_valid` only if there was something there, so a pack that
-really does reserve them shows no cycle count rather than a plausible zero. **The
-pack detail page is the readout for this**: a `CAPACITY` field reading
+really does reserve them shows no cycle count rather than a plausible zero.
+**The pack detail page is the readout for this**: a `CAPACITY` field reading
 `240.0 Ah 133 cy` means the firmware fills those bytes, and one reading
 `240.0 Ah` alone means it follows the document.
 

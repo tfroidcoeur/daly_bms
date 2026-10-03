@@ -12,7 +12,8 @@ the way they are. (A fifth, `virtual_bms`, came later - see the end.)
 
 Plain C99. No LVGL, no ESP-IDF, no `printf`, no allocation after init, no
 threads, no blocking calls, no global mutable state. The same translation units
-compile into `port/sim` and `port/esp32` unchanged.
+compile into every port unchanged - `port/sim` and the reference `port/esp32`
+today. [porting.md](porting.md) lists what a new port supplies.
 
 That is not purity for its own sake. The protocol decoding and the poll policy
 are the parts of this project most likely to be wrong and least likely to
@@ -21,8 +22,8 @@ They are worth testing hard, and they are testable only while they are free of
 the platform. `tests/` drives the whole stack with a fake clock and synthetic
 frames, no hardware and no display.
 
-The rule that keeps this true: **if a change to `core/` needs a platform header,
-the change belongs somewhere else.**
+The rule that keeps this true:
+**if a change to `core/` needs a platform header, the change belongs somewhere else.**
 
 ## The four modules
 
@@ -147,8 +148,9 @@ showing last round's values next to twenty-one showing this round's, and nothing
 on screen would distinguish that from a real 40 mV step change.
 
 The same reasoning drives `daly_apply_frame()` returning false on anything
-malformed and leaving the pack untouched. **A corrupt frame must never poison
-good data**, because the display has no way to render doubt.
+malformed and leaving the pack untouched.
+**A corrupt frame must never poison good data**, because the display has no way
+to render doubt.
 
 ### Each command owns its bitmap
 
@@ -299,12 +301,12 @@ from a real pack that does not have the data yet.
 
 ## What is not verified
 
-`docs/hardware/daly-can-protocol.md` now sets **Daly's own "CAN Communications
-Protocol V1.0"** against the community reverse-engineering this module was built
-from. They agree byte for byte on `0x90`, `0x91`, `0x92`, `0x93` and `0x97`,
-which is good evidence and not the same as having seen it work. This section says
-it again because `core/` is where a wrong offset turns into a confident number on
-a screen.
+`docs/hardware/daly-can-protocol.md` now sets
+**Daly's own "CAN Communications Protocol V1.0"** against the community
+reverse-engineering this module was built from. They agree byte for byte on
+`0x90`, `0x91`, `0x92`, `0x93` and `0x97`, which is good evidence and not the
+same as having seen it work. This section says it again because `core/` is where
+a wrong offset turns into a confident number on a screen.
 
 Where the two sources disagree, the code refuses to choose:
 
@@ -322,11 +324,11 @@ reads as a brand new battery. It is also the cheapest possible instrument for th
 question: whether the pack page's `CAPACITY` field shows a cycle count *is* the
 answer for that firmware.
 
-Nothing here has been run against a real BMS. Before trusting any value on the
-panel, build the firmware with `CONFIG_BMS_RAW_LOGGER` set — see
-`port/esp32/main/main.c:46` — which dumps every transmitted and received frame
-over USB serial and draws nothing. Compare that against Daly's own app, one pack
-at a time, and correct the table before correcting anything else.
+What has been checked on real hardware, and what is still open, is in the
+[observed-on-real-hardware table](hardware/daly-can-protocol.md#observed-on-real-hardware).
+On a new BMS or firmware version, start with the raw frame logger
+(`CONFIG_BMS_RAW_LOGGER`, or `sim_headless --raw`) and compare it against
+Daly's own app, one pack at a time, before trusting the panel.
 
 The two scalings most likely to be wrong, because both are biased rather than
 plain, are in `core/daly_proto.h:117`:

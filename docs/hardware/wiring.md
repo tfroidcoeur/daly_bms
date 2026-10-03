@@ -3,6 +3,19 @@
 How the SN65HVD230 transceiver connects the ESP32-S3-RLCD-4.2 to three Daly BMS
 units.
 
+## In short
+
+- **Transceiver on the 2x8 expansion header P1:** 3V3 to pin 1, GND to pin 3,
+  CAN TX to pin 13 (GPIO17), CAN RX to pin 11 (GPIO3). Pins 7 and 9 are the
+  touch pads.
+- **Bus:** CANH/CANL as a twisted pair to the three Daly units, with a ground
+  wire alongside. 250 kbit/s, 29-bit extended frames.
+- **Termination:** exactly two 120 ohm terminators, at the two physical ends.
+  The breakouts ship with one fitted, so lift it on every node that is not an
+  end. The unpowered bus should measure about 60 ohm across CANH-CANL.
+- **Addresses:** set the BMS board numbers to 0x01/0x02/0x03 with Daly's
+  Windows BmsMonitor tool first. They all default to 0x01 and collide.
+
 ## Topology
 
 One linear bus, four nodes, common ground.
@@ -62,10 +75,10 @@ during boot: the transceiver's `R` output idles high (recessive).
 
 Do not use GPIO0 (pin 5, BOOT strap) or GPIO18 (pin 15, KEY button).
 
-**`D`/`CTX` is an input to the transceiver and takes our TX; `R`/`CRX` is its
-output and feeds our RX.** Wired the other way round, two push-pull drivers end
-up on one net - which during bring-up destroyed a transceiver and cost most of
-an evening to find, because every symptom pointed at the bus instead.
+**`D`/`CTX` is an input to the transceiver and takes our TX; `R`/`CRX` is its output and feeds our RX.**
+Wired the other way round, two push-pull drivers end up on one net - which
+during bring-up destroyed a transceiver and cost most of an evening to find,
+because every symptom pointed at the bus instead.
 
 For the full P1 pinout see
 [esp32-s3-rlcd-4.2.md](esp32-s3-rlcd-4.2.md#the-2-x-8-expansion-header-p1).
@@ -118,10 +131,10 @@ Connect a single Daly, still off the main bank if possible. Flash the raw frame
 logger build and dump every received identifier and payload over USB serial.
 
 Confirm the unit answers `0x18900140` with source `0x18904001`. Then check every
-field layout in [daly-can-protocol.md](daly-can-protocol.md) against Daly's own app
-running on the same pack - particularly the 30000 current offset, the 40
-temperature offset, and the multi-frame `0x95` cell ordering. **Fix the parser
-before trusting the UI.**
+field layout in [daly-can-protocol.md](daly-can-protocol.md) against Daly's own
+app running on the same pack - particularly the 30000 current offset, the 40
+temperature offset, and the multi-frame `0x95` cell ordering.
+**Fix the parser before trusting the UI.**
 
 ### 3. Re-address packs 2 and 3
 

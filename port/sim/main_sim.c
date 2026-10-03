@@ -55,19 +55,7 @@ int main(int argc, char **argv)
     if (sim_display_init() == NULL) {
         return 1;
     }
-    /*
-     * Specimen mode replaces the whole UI, so the normal pages do not exist and
-     * ui_update() must not be called against them. LVGL's default assert
-     * handler is `while(1)`, so touching a NULL widget hangs rather than
-     * crashing - which is a confusing way to find this out.
-     */
-    const bool specimen = getenv("SIM_FONT_SPECIMEN") != NULL;
-    if (specimen) {
-        void ui_font_specimen(void);
-        ui_font_specimen();
-    } else {
-        ui_init();
-    }
+    ui_init();
 
     system_model_t model;
     poller_t poller;
@@ -109,7 +97,7 @@ int main(int argc, char **argv)
 
         /* The panel is reflective and slow. Pushing the model into the widgets
          * more than about twice a second buys nothing and smears the display. */
-        if (!specimen && now - last_ui >= 500) {
+        if (now - last_ui >= 500) {
             last_ui = now;
             ui_update(&model);
         }
@@ -129,9 +117,7 @@ int main(int argc, char **argv)
             }
         }
         if (step_pending && now >= next_step_at) {
-            if (!specimen) {
-                ui_update(&model);
-            }
+            ui_update(&model);
             lv_timer_handler();
             if (shot_dir) {
                 char path[320];
@@ -149,9 +135,7 @@ int main(int argc, char **argv)
             if (shot_dir) {
                 char path[320];
                 snprintf(path, sizeof path, "%s/%02d-final.ppm", shot_dir, step_no);
-                if (!specimen) {
-                    ui_update(&model);
-                }
+                ui_update(&model);
                 lv_timer_handler();
                 sim_screenshot(path);
                 printf("shot %s\n", path);

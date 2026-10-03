@@ -84,6 +84,27 @@ sudo slcand -o -c -s5 /dev/ttyACM0 can0
 sudo ip link set up can0
 ```
 
+**IXXAT USB-to-CAN V2** (the reference adapter) has no mainline driver.
+`tools/setup-ixxat.sh` clones HMS's SocketCAN driver, builds and installs it
+through DKMS, and brings `can0` up at 250 kbit/s. Re-run it after a kernel
+upgrade.
+
+```bash
+sudo ./tools/setup-ixxat.sh        # optional bitrate argument, default 250000
+```
+
+With Secure Boot on, the first attempt fails with *Loading of module with
+unavailable key is rejected*: the DKMS signing key is not trusted yet. Enrol it
+once, then re-run the script:
+
+```bash
+sudo mokutil --import /var/lib/shim-signed/mok/MOK.der   # set a one-time password
+sudo reboot
+```
+
+At the blue MOK Manager screen: *Enroll MOK* -> *Continue* -> *Yes* -> the
+password -> *Reboot*. Later kernel updates are signed with the same key.
+
 Confirm it is up and counting:
 
 ```bash
@@ -94,7 +115,7 @@ ip -details -statistics link show can0
 
 ```bash
 cmake -B build && cmake --build build
-ctest --test-dir build          # 711 checks, must be clean before you start
+ctest --test-dir build          # must be clean before you start
 ```
 
 ## 4. First contact - one pack, raw
@@ -144,12 +165,13 @@ next place to look, and the only place that separates the causes.
 
 ## 5. Validate the decode table - the actual point of this session
 
-[daly-can-protocol.md](daly-can-protocol.md) now carries **Daly's own protocol
-document V1.0** alongside the community reverse-engineering this project was
-built from. They agree on `0x90`, `0x91`, `0x92`, `0x93` and `0x97`, which is
-strong evidence but not the same thing as having seen it work. **They disagree in
-two places, and this session is where a real pack settles both** - see
-[the two open questions](#the-two-open-questions) below.
+[daly-can-protocol.md](daly-can-protocol.md) now carries
+**Daly's own protocol document V1.0** alongside the community
+reverse-engineering this project was built from. They agree on `0x90`, `0x91`,
+`0x92`, `0x93` and `0x97`, which is strong evidence but not the same thing as
+having seen it work.
+**They disagree in two places, and this session is where a real pack settles both**
+- see [the two open questions](#the-two-open-questions) below.
 
 Nothing on the display is trustworthy until the layouts are checked against a
 pack.
@@ -198,11 +220,12 @@ request:
                            ^^ this byte
 ```
 
-A burst that starts at `00` follows the document; one that starts at `01` follows
-the community layout. Either is handled, so **this is a note to make, not a fault
-to fix** - but note it, because it tells you how long the cells take to appear. A
-1-based pack spends its first burst being identified, so cells show up on the
-second round, about a second later than the other fields.
+A burst that starts at `00` follows the document; one that starts at `01`
+follows the community layout. Either is handled, so
+**this is a note to make, not a fault to fix** - but note it, because it tells
+you how long the cells take to appear. A 1-based pack spends its first burst
+being identified, so cells show up on the second round, about a second later
+than the other fields.
 
 If cells never appear at all and `0x94` is reporting the right count, the frame
 numbering is where to look: the raw log shows exactly which byte 0 values arrived.
@@ -253,9 +276,10 @@ cross-check for it.
 
 ### When something is wrong
 
-Fix `core/daly_proto.c`, then **add a case to `tests/test_core.c` using the real
-bytes you captured**, so the correction is pinned by a test rather than by
-memory. Rebuild, re-check. Do not move on until every number matches.
+Fix `core/daly_proto.c`, then
+**add a case to `tests/test_core.c` using the real bytes you captured**, so the
+correction is pinned by a test rather than by memory. Rebuild, re-check. Do not
+move on until every number matches.
 
 ## 6. All three packs
 
@@ -285,4 +309,4 @@ layout survives real values rather than the simulator's tidy ones.
 
 Laptop on battery or behind an isolator. Cross-check SoC, pack voltage and
 current per pack against Daly's app. Watch a real winch pull: current should
-track, and the gauge is scaled 0-1000 A magnitude-only.
+track, and the gauge is scaled 0-350 A (`UI_GAUGE_MAX_A`), magnitude only.

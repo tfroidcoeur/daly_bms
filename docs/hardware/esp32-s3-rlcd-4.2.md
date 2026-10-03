@@ -193,5 +193,5 @@ agree with the Zephyr board devicetree on every one:
 | `0xB4` gate waveform LPM | `05 46 77 77 77 77 76 45` | `lpm-gate-waveform` |
 | `0x21` | inversion on | `inversion-on` |
 
-Two independent sources agreeing is good evidence, but **none of it has been run
-on hardware**. Treat the driver as unverified until first bring-up.
+Both sources agree on every value, and `st7305.c` runs with them on the
+reference board.

@@ -21,9 +21,7 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
 mkdir -p "$OUT"
-# Only clear what this script regenerates. 00-font-comparison.png comes from
-# tools/make-font-comparison.sh and must survive.
-find "$OUT" -maxdepth 1 -name '[0-9][0-9]-*.png' ! -name '00-font-comparison.png' -delete
+find "$OUT" -maxdepth 1 -name '[0-9][0-9]-*.png' -delete
 rm -f "$OUT/ui-pages.png"
 
 # capture <tmp-subdir> <scenario> <sim-script> <quit-ms>
