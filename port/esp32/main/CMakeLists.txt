@@ -10,6 +10,7 @@ idf_component_register(
         "${REPO_ROOT}/core/bms_model.c"
         "${REPO_ROOT}/core/poller.c"
         "${REPO_ROOT}/core/warnings.c"
+        "${REPO_ROOT}/core/virtual_bms.c"
         "${REPO_ROOT}/ui/fonts/fixed_6x13.c"
         "${REPO_ROOT}/ui/fonts/fixed_6x13b.c"
         "${REPO_ROOT}/ui/fonts/fixed_7x14.c"

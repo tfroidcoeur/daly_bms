@@ -6,7 +6,7 @@ LVGL pages, the ESP-IDF app, the SDL simulator — is a consumer.
 
 This document is the reasoning behind that shape. The file-header comments in
 `core/` say what each module does; this says why the four of them are arranged
-the way they are.
+the way they are. (A fifth, `virtual_bms`, came later - see the end.)
 
 ## Why it has no dependencies
 
@@ -279,6 +279,23 @@ same ordering - `push()` evicts the weakest line rather than refusing the
 newcomer. That matters because the bank-level rules run last: dropping on
 arrival would let three packs' worth of cell drift crowd out the one alarm that
 says a fuse has blown.
+
+## The virtual BMS
+
+`virtual_bms` is the decoder run backwards: it turns the model into Daly
+answers, so another dashboard that knows only one BMS can poll the bank as one.
+It is shaped like the poller - frames in, frames out, no I/O - and depends on
+`bms_model`, `daly_proto` and the poller's `can_frame_out_t`, nothing else.
+
+It builds a whole `bms_pack_t` out of the online packs (`vbms_aggregate()`) and
+encodes from that, which keeps the combining rules in one function and makes
+the test cheap: every answer is fed back through `daly_apply_frame()` and must
+come out as the aggregate went in.
+
+It keeps the decoder's rule about absent data. A field no pack has reported is
+not answered with a zero, because zero is a legal SoC and a legal temperature
+on the dashboard reading it too; the request just goes unanswered, as it would
+from a real pack that does not have the data yet.
 
 ## What is not verified
 

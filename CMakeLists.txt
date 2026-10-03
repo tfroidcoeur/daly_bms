@@ -32,6 +32,7 @@ set(BMS_CORE_SOURCES
     core/bms_model.c
     core/poller.c
     core/warnings.c
+    core/virtual_bms.c
 )
 add_library(bms_core STATIC ${BMS_CORE_SOURCES})
 target_include_directories(bms_core PUBLIC core)

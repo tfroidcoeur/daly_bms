@@ -7,6 +7,8 @@
  *
  *     ./build/sim_headless can0            decoded model, refreshed twice a second
  *     ./build/sim_headless can0 --raw      every frame, with its decode alongside
+ *     ./build/sim_headless can0 --virtual 0x10
+ *                                          also answer as the virtual BMS there
  *
  * --raw is the counterpart of CONFIG_BMS_RAW_LOGGER in the firmware, and it
  * drops the kernel filter as well: a pack answering with an identifier we did
@@ -25,6 +27,7 @@
 #include "can_socketcan.h"
 #include "daly_proto.h"
 #include "poller.h"
+#include "virtual_bms.h"
 
 static volatile sig_atomic_t g_stop;
 
@@ -52,7 +55,7 @@ static void sleep_ms(int ms)
     nanosleep(&ts, NULL);
 }
 
-static void print_model(const system_model_t *m)
+static void print_model(const system_model_t *m, const vbms_t *v)
 {
     const bms_summary_t s = bms_model_summary(m);
 
@@ -113,6 +116,21 @@ static void print_model(const system_model_t *m)
                    p->alarms[4], p->alarms[5], p->alarms[6]);
         }
         printf("              frames %u\n\n", p->frames_rx);
+    }
+    if (v->addr) {
+        bms_pack_t a;
+        vbms_aggregate(m, &a);
+        printf("virtual (0x%02X)  %u requests answered", v->addr, v->requests);
+        if (a.online) {
+            printf("   %6.2f V  %+7.2f A  SoC %5.1f %%  %lu mAh  %u cells  "
+                   "%u sensors  %s%s",
+                   a.pack_mv / 1000.0, a.pack_ma / 1000.0, a.soc_pct_x10 / 10.0,
+                   (unsigned long)a.remaining_mah, a.cell_count, a.temp_count,
+                   a.chg_mos ? "CHG " : "chg ", a.dsg_mos ? "DSG" : "dsg");
+        } else {
+            printf("   silent - no pack online");
+        }
+        printf("\n\n");
     }
     printf("link   tx %u ok", g_tx_ok);
     if (g_tx_fail) {
@@ -293,21 +311,35 @@ int main(int argc, char **argv)
 {
     const char *ifname = "vcan0";
     bool raw = false;
+    unsigned long vaddr = 0;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--raw") == 0) {
             raw = true;
+        } else if (strcmp(argv[i], "--virtual") == 0 && i + 1 < argc) {
+            vaddr = strtoul(argv[++i], NULL, 0);
         } else if (argv[i][0] == '-') {
-            fprintf(stderr, "usage: %s [interface] [--raw]\n", argv[0]);
+            fprintf(stderr, "usage: %s [interface] [--raw] [--virtual ADDR]\n",
+                    argv[0]);
             return 2;
         } else {
             ifname = argv[i];
         }
     }
 
+    /* The virtual BMS answers in the decoded view only; --raw just watches. */
+    vbms_t vbms;
+    if (vaddr && (vaddr > 0xFF || !vbms_init(&vbms, (uint8_t)vaddr))) {
+        fprintf(stderr, "virtual BMS address 0x%lX is taken or out of range\n",
+                vaddr);
+        return 2;
+    }
+    if (!vaddr) {
+        vbms_init(&vbms, 0);
+    }
     can_link_t link;
     /* Raw mode sees the whole bus; the normal view keeps the kernel filter. */
-    if (!can_link_open(&link, ifname, !raw)) {
+    if (!can_link_open(&link, ifname, !raw, vbms.addr)) {
         return 1;
     }
     signal(SIGINT, on_sigint);
@@ -339,11 +371,17 @@ int main(int argc, char **argv)
         while (can_link_recv(&link, &id, data, &len)) {
             g_rx_frames++;
             poller_on_frame(&poller, id, data, len, now);
+
+            can_frame_out_t answer[VBMS_MAX_FRAMES];
+            const uint8_t n = vbms_on_frame(&vbms, &model, id, data, len, answer);
+            for (uint8_t f = 0; f < n; f++) {
+                send_frame(&link, &answer[f]);
+            }
         }
 
         if (now - last_print >= 500) {
             last_print = now;
-            print_model(&model);
+            print_model(&model, &vbms);
         }
         sleep_ms(2);
     }

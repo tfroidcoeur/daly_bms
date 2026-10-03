@@ -21,8 +21,12 @@ typedef struct {
  * 0x40. Pass false for diagnostics: a pack answering with an identifier we did
  * not predict is invisible through the filter, and invisible looks exactly like
  * a pack that is not answering at all.
+ *
+ * A non-zero `virtual_addr` adds requests to that address to what the filter
+ * lets in, for the virtual BMS.
  */
-bool can_link_open(can_link_t *l, const char *ifname, bool filtered);
+bool can_link_open(can_link_t *l, const char *ifname, bool filtered,
+                   uint8_t virtual_addr);
 void can_link_close(can_link_t *l);
 
 bool can_link_send(can_link_t *l, uint32_t ext_id, const uint8_t *data, uint8_t len);

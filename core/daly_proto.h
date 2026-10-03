@@ -38,6 +38,9 @@ typedef enum {
 /* Build the extended identifier for a request to `bms_addr`. */
 uint32_t daly_request_id(daly_cmd_t cmd, uint8_t bms_addr);
 
+/* Build the identifier a BMS at `bms_addr` answers `host_addr` with. */
+uint32_t daly_response_id(uint8_t cmd, uint8_t bms_addr, uint8_t host_addr);
+
 /*
  * Split a received extended identifier.
  *
@@ -123,6 +126,29 @@ static inline int32_t daly_decode_current_ma(uint16_t raw)
 static inline int8_t daly_decode_temp_c(uint8_t raw)
 {
     return (int8_t)((int16_t)raw - 40);
+}
+
+/*
+ * The inverses, for the virtual BMS. The current goes out with the same sign
+ * convention the real packs are read with, so whatever reads the virtual pack
+ * needs the same setting as it would for any one of them.
+ */
+static inline uint16_t daly_encode_current_raw(int32_t ma)
+{
+    /* Nearest 0.1 A, half away from zero. */
+    const int32_t units = (ma >= 0 ? ma + 50 : ma - 50) / 100;
+    int32_t raw = 30000 + units * DALY_CURRENT_SIGN;
+    if (raw < 0) {
+        raw = 0;
+    } else if (raw > 0xFFFF) {
+        raw = 0xFFFF;
+    }
+    return (uint16_t)raw;
+}
+
+static inline uint8_t daly_encode_temp_raw(int8_t c)
+{
+    return c < -40 ? 0 : (uint8_t)((int16_t)c + 40);
 }
 
 #endif /* DALY_PROTO_H */

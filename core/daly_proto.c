@@ -17,6 +17,12 @@ uint32_t daly_request_id(daly_cmd_t cmd, uint8_t bms_addr)
            ((uint32_t)bms_addr << 8)   | DALY_HOST_ADDR;
 }
 
+uint32_t daly_response_id(uint8_t cmd, uint8_t bms_addr, uint8_t host_addr)
+{
+    return ((uint32_t)DALY_PRIO << 24) | ((uint32_t)cmd << 16) |
+           ((uint32_t)host_addr << 8)  | bms_addr;
+}
+
 bool daly_decode_id(uint32_t id, uint8_t *cmd, uint8_t *src_addr)
 {
     if (((id >> 24) & 0xFFu) != DALY_PRIO) {

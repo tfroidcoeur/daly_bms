@@ -53,6 +53,21 @@ config BMS_TOUCH_MONITOR
 
 endchoice
 
+config BMS_VIRTUAL_ADDR
+    hex "Virtual BMS address (0 = off)"
+    default 0x10
+    range 0x0 0xff
+    help
+      Answer Daly requests to this address with the three packs combined into
+      one, so a dashboard that only knows how to read a single Daly BMS can
+      read the whole bank. Voltage and SoC are averaged, current and remaining
+      capacity summed, cell and temperature extremes taken across all packs.
+      See core/virtual_bms.h for the full set of rules.
+
+      Pick an address no real BMS on the bus uses. 0x01-0x03 are the packs and
+      0x40 is the host, so those are refused; Daly also reserve 0x20 (GPRS) and
+      0x80 (Bluetooth), and 0x04-0x05 are best left for future packs.
+
 config BMS_INVERT_CURRENT
     bool "Daly reports discharge above the 30000 current bias"
     default n

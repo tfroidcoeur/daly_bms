@@ -8,6 +8,7 @@
 #include "bms_model.h"
 #include "daly_proto.h"
 #include "poller.h"
+#include "virtual_bms.h"
 #include "warnings.h"
 
 static int g_fail;
@@ -1233,6 +1234,274 @@ static void test_warnings_formatting(void)
     }
 }
 
+/* --- virtual BMS ---------------------------------------------------------- */
+
+#define VADDR 0x10
+
+/* Three healthy 24S packs with distinguishable numbers, all fully reported. */
+static void vbms_bank(system_model_t *m)
+{
+    bms_model_init(m);
+    for (int i = 0; i < 3; i++) {
+        bms_pack_t *p = &m->pack[i];
+        p->online        = true;
+        p->soc_valid     = true;
+        p->pack_mv       = 81000 + i * 100;
+        p->pack_ma       = -10000 - i * 1000;
+        p->soc_pct_x10   = (uint16_t)(800 + i * 10);
+        p->cell_count    = 24;
+        p->temp_count    = 2;
+        p->cells_valid   = true;
+        p->temps_valid   = true;
+        for (int c = 0; c < 24; c++) {
+            p->cell_mv[c] = 3375;
+        }
+        p->cell_max_mv   = 3375;
+        p->cell_min_mv   = 3375;
+        p->cell_max_idx  = 1;
+        p->cell_min_idx  = 1;
+        p->temp_c[0]     = (int8_t)(20 + i);
+        p->temp_c[1]     = (int8_t)(21 + i);
+        p->temp_minmax_valid = true;
+        p->temp_max_c    = (int8_t)(21 + i);
+        p->temp_max_idx  = 2;
+        p->temp_min_c    = (int8_t)(20 + i);
+        p->temp_min_idx  = 1;
+        p->charge_state  = 2;
+        p->chg_mos       = true;
+        p->dsg_mos       = true;
+        p->remaining_mah = 200000u + (uint32_t)i * 1000u;
+        p->cycles_valid  = true;
+        p->cycles        = (uint16_t)(10 + i);
+    }
+}
+
+static void test_vbms_addresses(void)
+{
+    vbms_t v;
+    CHECK(!vbms_init(&v, 0));
+    CHECK(!vbms_init(&v, 0x01));
+    CHECK(!vbms_init(&v, 0x03));
+    CHECK(!vbms_init(&v, DALY_HOST_ADDR));
+    CHECK_EQ(v.addr, 0);
+    CHECK(vbms_init(&v, 0x04));
+    CHECK(vbms_init(&v, VADDR));
+    CHECK_EQ(v.addr, VADDR);
+}
+
+static void test_vbms_aggregate(void)
+{
+    system_model_t m;
+    bms_pack_t a;
+    vbms_bank(&m);
+
+    /* Pack 2 has a high cell at #4, pack 3 a low one at #13. */
+    m.pack[1].cell_mv[3]  = 3450;
+    m.pack[1].cell_max_mv = 3450;
+    m.pack[1].cell_max_idx = 4;
+    m.pack[2].cell_mv[12] = 3200;
+    m.pack[2].cell_min_mv = 3200;
+    m.pack[2].cell_min_idx = 13;
+    m.pack[0].balance_bits = 1u << 3;
+    m.pack[2].alarms[0]    = 0x01;
+    m.pack[1].chg_mos      = false;
+
+    vbms_aggregate(&m, &a);
+    CHECK(a.online);
+    CHECK_EQ(a.pack_mv, 81100);              /* parallel: voltages average */
+    CHECK_EQ(a.pack_ma, -33000);             /* and currents add */
+    CHECK_EQ(a.soc_pct_x10, 810);
+    CHECK_EQ(a.remaining_mah, 603000u);
+    CHECK_EQ(a.charge_state, 2);
+    CHECK(!a.chg_mos);                       /* one pack off is enough */
+    CHECK(a.dsg_mos);
+    CHECK_EQ(a.cycles, 12);
+
+    /* Extremes are the worst across packs, never averaged. */
+    CHECK_EQ(a.cell_max_mv, 3450);
+    CHECK_EQ(a.cell_max_idx, 4);
+    CHECK_EQ(a.cell_min_mv, 3200);
+    CHECK_EQ(a.cell_min_idx, 13);
+
+    /* And the cell array carries them too, where a mean would hide both. */
+    CHECK_EQ(a.cell_count, 24);
+    CHECK(a.cells_valid);
+    CHECK_EQ(a.cell_mv[3], 3450);
+    CHECK_EQ(a.cell_mv[12], 3200);
+    CHECK_EQ(a.cell_mv[0], 3375);
+    CHECK_EQ(a.balance_bits, 1u << 3);
+
+    /* Every sensor, end to end, with the extremes renumbered to match. */
+    CHECK_EQ(a.temp_count, 6);
+    CHECK(a.temps_valid);
+    CHECK_EQ(a.temp_c[0], 20);
+    CHECK_EQ(a.temp_c[5], 23);
+    CHECK_EQ(a.temp_max_c, 23);
+    CHECK_EQ(a.temp_max_idx, 6);             /* pack 3, sensor 2 */
+    CHECK_EQ(a.temp_min_c, 20);
+    CHECK_EQ(a.temp_min_idx, 1);
+
+    /* Faults OR together; all packs present, so no comm fault. */
+    CHECK_EQ(a.alarms[0], 0x01);
+    CHECK_EQ(a.alarms[VBMS_COMM_FAULT_BYTE], 0);
+    CHECK(a.alarm_active);
+
+    /* A pack drops out: it leaves every aggregate, and the bank says so. */
+    m.pack[1].online = false;
+    vbms_aggregate(&m, &a);
+    CHECK_EQ(a.pack_mv, 81100);              /* (81000 + 81200) / 2 */
+    CHECK_EQ(a.pack_ma, -22000);
+    CHECK_EQ(a.remaining_mah, 402000u);
+    CHECK(a.chg_mos);
+    CHECK_EQ(a.temp_count, 4);
+    CHECK_EQ(a.temp_max_idx, 4);             /* pack 3 is now sensors 3-4 */
+    CHECK(a.alarms[VBMS_COMM_FAULT_BYTE] & (1u << VBMS_COMM_FAULT_BIT));
+
+    /* A pack with a different cell count stays out of the array. */
+    m.pack[1].online = true;
+    m.pack[1].cell_count = 16;
+    vbms_aggregate(&m, &a);
+    CHECK_EQ(a.cell_count, 24);
+    CHECK_EQ(a.cell_mv[3], 3375);            /* pack 2's high cell is gone */
+    CHECK_EQ(a.cell_max_mv, 3450);           /* but 0x91 still reports it */
+}
+
+/* Ask the virtual BMS for `cmd` and feed the answer to a reader's decoder. */
+static uint8_t vbms_ask(vbms_t *v, const system_model_t *m, uint8_t cmd,
+                        bms_pack_t *reader)
+{
+    static const uint8_t zero[8] = { 0 };
+    can_frame_out_t out[VBMS_MAX_FRAMES];
+
+    const uint8_t n = vbms_on_frame(v, m, daly_request_id((daly_cmd_t)cmd, VADDR),
+                                    zero, 8, out);
+    for (uint8_t f = 0; f < n; f++) {
+        uint8_t rcmd = 0, src = 0;
+        CHECK(daly_decode_id(out[f].id, &rcmd, &src));
+        CHECK_EQ(rcmd, cmd);
+        CHECK_EQ(src, VADDR);
+        CHECK_EQ(out[f].len, 8);
+        daly_apply_frame(reader, rcmd, out[f].data);
+    }
+    return n;
+}
+
+static void test_vbms_round_trip(void)
+{
+    system_model_t m;
+    vbms_t v;
+    bms_pack_t a, r;
+
+    vbms_bank(&m);
+    m.pack[0].cell_mv[7] = 3401;
+    m.pack[2].alarms[1]  = 0x40;
+    m.pack[1].balance_bits = 1u << 20;
+    vbms_aggregate(&m, &a);
+    vbms_init(&v, VADDR);
+    memset(&r, 0, sizeof r);
+
+    /* The same order the poller uses: 0x94 first, to size the bursts. */
+    CHECK_EQ(vbms_ask(&v, &m, DALY_CMD_STATUS, &r), 1);
+    CHECK_EQ(vbms_ask(&v, &m, DALY_CMD_SOC, &r), 1);
+    CHECK_EQ(vbms_ask(&v, &m, DALY_CMD_CELL_MINMAX, &r), 1);
+    CHECK_EQ(vbms_ask(&v, &m, DALY_CMD_TEMP_MINMAX, &r), 1);
+    CHECK_EQ(vbms_ask(&v, &m, DALY_CMD_MOS, &r), 1);
+    CHECK_EQ(vbms_ask(&v, &m, DALY_CMD_CELL_VOLTS, &r), 8);
+    CHECK_EQ(vbms_ask(&v, &m, DALY_CMD_CELL_TEMPS, &r), 1);
+    CHECK_EQ(vbms_ask(&v, &m, DALY_CMD_BALANCE, &r), 1);
+    CHECK_EQ(vbms_ask(&v, &m, DALY_CMD_FAULTS, &r), 1);
+
+    /* What the reader decoded is what we meant, to the wire's resolution. */
+    CHECK_EQ(r.cell_count, 24);
+    CHECK_EQ(r.temp_count, 6);
+    CHECK(r.cycles_valid);
+    CHECK_EQ(r.cycles, a.cycles);
+    CHECK_EQ(r.pack_mv, 81100);
+    CHECK_EQ(r.pack_ma, a.pack_ma);          /* survives either current sign */
+    CHECK_EQ(r.soc_pct_x10, a.soc_pct_x10);
+    CHECK_EQ(r.cell_max_mv, a.cell_max_mv);
+    CHECK_EQ(r.temp_max_c, a.temp_max_c);
+    CHECK_EQ(r.temp_min_idx, a.temp_min_idx);
+    CHECK_EQ(r.charge_state, 2);
+    CHECK(r.chg_mos && r.dsg_mos);
+    CHECK_EQ(r.remaining_mah, a.remaining_mah);
+    /*
+     * Numbered from 1, like the real packs, so a reader that has to learn the
+     * base spends the first burst learning it - exactly as it would on them.
+     * (0x96, one frame here, is its own last frame and lands first time.)
+     */
+    CHECK(!r.cells_valid);
+    CHECK_EQ(r.rx.base_cells, DALY_FRAME_BASE_ONE);
+    CHECK_EQ(vbms_ask(&v, &m, DALY_CMD_CELL_VOLTS, &r), 8);
+    CHECK_EQ(vbms_ask(&v, &m, DALY_CMD_CELL_TEMPS, &r), 1);
+    CHECK(r.cells_valid);
+    CHECK(memcmp(r.cell_mv, a.cell_mv, 24 * sizeof r.cell_mv[0]) == 0);
+    CHECK(r.temps_valid);
+    CHECK(memcmp(r.temp_c, a.temp_c, 6) == 0);
+    CHECK_EQ(r.balance_bits, 1u << 20);
+    CHECK(memcmp(r.alarms, a.alarms, BMS_ALARM_BYTES) == 0);
+
+    /* The life byte counts our own 0x93 answers, like a real pack's does. */
+    const uint8_t life = r.bms_life;
+    vbms_ask(&v, &m, DALY_CMD_MOS, &r);
+    CHECK_EQ(r.bms_life, (uint8_t)(life + 1));
+
+    /* The answer goes back to whoever asked, not always to 0x40. */
+    can_frame_out_t out[VBMS_MAX_FRAMES];
+    const uint8_t zero[8] = { 0 };
+    CHECK_EQ(vbms_on_frame(&v, &m, 0x18900000u | (VADDR << 8) | 0x41, zero, 8,
+                           out), 1);
+    CHECK_EQ(out[0].id, 0x18904110u);
+}
+
+static void test_vbms_silence(void)
+{
+    system_model_t m;
+    vbms_t v;
+    can_frame_out_t out[VBMS_MAX_FRAMES];
+    const uint8_t zero[8] = { 0 };
+
+    vbms_bank(&m);
+    vbms_init(&v, VADDR);
+
+    /* Not for us: a request to a real pack, and a pack's own response. */
+    CHECK_EQ(vbms_on_frame(&v, &m, daly_request_id(DALY_CMD_SOC, 0x01), zero, 8,
+                           out), 0);
+    CHECK_EQ(vbms_on_frame(&v, &m, 0x18904001u, zero, 8, out), 0);
+    CHECK_EQ(vbms_on_frame(&v, &m, daly_request_id(DALY_CMD_SOC, VADDR) ^
+                           0x01000000u, zero, 8, out), 0);   /* wrong priority */
+
+    /* Disabled answers nothing. */
+    vbms_t off;
+    vbms_init(&off, 0);
+    CHECK_EQ(vbms_on_frame(&off, &m, daly_request_id(DALY_CMD_SOC, 0), zero, 8,
+                           out), 0);
+
+    /* Fields nobody has reported are not invented. */
+    for (int i = 0; i < 3; i++) {
+        m.pack[i].soc_valid   = false;
+        m.pack[i].cells_valid = false;
+    }
+    CHECK_EQ(vbms_on_frame(&v, &m, daly_request_id(DALY_CMD_SOC, VADDR), zero,
+                           8, out), 0);
+    CHECK_EQ(vbms_on_frame(&v, &m, daly_request_id(DALY_CMD_CELL_VOLTS, VADDR),
+                           zero, 8, out), 0);
+    CHECK_EQ(vbms_on_frame(&v, &m, daly_request_id(DALY_CMD_MOS, VADDR), zero,
+                           8, out), 1);
+
+    /* One pack's temperatures still pending holds back the whole 0x96 set. */
+    m.pack[1].temps_valid = false;
+    CHECK_EQ(vbms_on_frame(&v, &m, daly_request_id(DALY_CMD_CELL_TEMPS, VADDR),
+                           zero, 8, out), 0);
+
+    /* Every pack offline: silent, so the reader shows it offline too. */
+    for (int i = 0; i < 3; i++) {
+        m.pack[i].online = false;
+    }
+    CHECK_EQ(vbms_on_frame(&v, &m, daly_request_id(DALY_CMD_FAULTS, VADDR),
+                           zero, 8, out), 0);
+}
+
 int main(void)
 {
     struct { const char *name; void (*fn)(void); } tests[] = {
@@ -1270,6 +1539,10 @@ int main(void)
         { "0x98 worst fault",            test_fault_worst },
         { "warnings: named BMS faults",  test_warnings_name_bms_faults },
         { "warnings: formatting",        test_warnings_formatting },
+        { "vbms: addresses",             test_vbms_addresses },
+        { "vbms: aggregation",           test_vbms_aggregate },
+        { "vbms: round trip",            test_vbms_round_trip },
+        { "vbms: silence",               test_vbms_silence },
     };
 
     for (unsigned i = 0; i < sizeof tests / sizeof tests[0]; i++) {

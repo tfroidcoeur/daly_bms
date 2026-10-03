@@ -30,6 +30,7 @@
 #include "poller.h"
 #include "twai_link.h"
 #include "ui.h"
+#include "virtual_bms.h"
 
 static const char *TAG = "bms";
 
@@ -296,7 +297,7 @@ void app_main(void)
     return;
 #endif
 
-    if (!twai_link_start()) {
+    if (!twai_link_start(CONFIG_BMS_VIRTUAL_ADDR != 0)) {
         ESP_LOGE(TAG, "CAN did not come up; check the transceiver wiring");
     }
 
@@ -327,6 +328,15 @@ void app_main(void)
     bms_model_init(&model);
     poller_init(&poller, &model, poller_default_cfg());
 
+    /* The bank as one more Daly BMS, for a dashboard that reads only one. */
+    vbms_t vbms;
+    if (vbms_init(&vbms, CONFIG_BMS_VIRTUAL_ADDR)) {
+        ESP_LOGI(TAG, "virtual BMS answering at 0x%02X", vbms.addr);
+    } else if (CONFIG_BMS_VIRTUAL_ADDR != 0) {
+        ESP_LOGE(TAG, "virtual BMS address 0x%02X is taken; virtual BMS off",
+                 CONFIG_BMS_VIRTUAL_ADDR);
+    }
+
     uint32_t last_ui = 0;
     uint32_t last_health = 0;
 
@@ -351,6 +361,12 @@ void app_main(void)
         uint8_t data[8], len;
         while (twai_link_recv(&id, data, &len)) {
             poller_on_frame(&poller, id, data, len, now);
+
+            can_frame_out_t answer[VBMS_MAX_FRAMES];
+            const uint8_t n = vbms_on_frame(&vbms, &model, id, data, len, answer);
+            for (uint8_t i = 0; i < n; i++) {
+                twai_link_send(answer[i].id, answer[i].data, answer[i].len);
+            }
         }
 
         /*

@@ -45,7 +45,7 @@ int main(int argc, char **argv)
     const char *ifname = argc > 1 ? argv[1] : "vcan0";
 
     can_link_t link;
-    if (!can_link_open(&link, ifname, true)) {
+    if (!can_link_open(&link, ifname, true, 0)) {
         return 1;
     }
     signal(SIGINT, on_sigint);

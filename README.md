@@ -91,6 +91,41 @@ hold, which keeps the board usable on the bench before the pads are fitted.
 A pack that stops answering is drawn as `NO DATA` and drops out of the bank
 totals - it never shows stale numbers that look current.
 
+## Virtual BMS
+
+The display also answers on the CAN bus as a **fourth Daly BMS that is the whole
+bank**, so another dashboard that can only read a single Daly BMS can read all
+three packs as one. That dashboard polls the virtual address
+(`CONFIG_BMS_VIRTUAL_ADDR`, default `0x10`, `0` turns it off) with ordinary Daly
+`0x90`-`0x98` requests, and gets ordinary Daly answers back, 1-based multi-frame
+bursts and all.
+
+The packs are in parallel, so:
+
+| Field | Combined as |
+|---|---|
+| Voltage, SoC | mean |
+| Current, remaining capacity | sum |
+| Cell / temperature min and max (`0x91`, `0x92`) | the extremes across all packs |
+| Cell voltages (`0x95`) | per position, the pack whose cell strays furthest from the bank mean |
+| Temperatures (`0x96`) | every pack's sensors end to end, up to Daly's 16 |
+| Charge / discharge MOSFET | on only if on in every pack |
+| Faults (`0x98`) | OR across packs, plus Daly's *communication failure* bit while a pack is offline |
+| Cycles | the highest |
+
+Cell voltages are not averaged on purpose: cell 5 of one pack and cell 5 of
+another are in different series strings, and their mean would hide the weak
+cell a dashboard computing min/max from the array is looking for. Only online
+packs count. A command nothing has reported yet goes unanswered rather than
+answered with zeros, and with every pack offline the virtual BMS falls silent,
+so the dashboard shows it offline instead of stale. The rules live in
+`core/virtual_bms.c`, with tests that decode every answer back through the same
+decoder the display uses.
+
+The current goes out with the same sign convention the real packs use, so the
+dashboard needs whatever current-direction setting it would need for any one of
+them.
+
 ## Layout
 
 ```
@@ -147,6 +182,7 @@ honest preview rather than a flattering mockup.
 
 ```bash
 ./build/sim_headless vcan0         # same core, printed as text - no LVGL
+./build/sim_headless vcan0 --virtual 0x10   # ...and answer as the virtual BMS
 ./build/test_core                  # unit tests standalone
 candump vcan0                      # watch the raw bus
 ```
