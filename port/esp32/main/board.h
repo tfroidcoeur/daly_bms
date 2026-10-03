@@ -121,6 +121,17 @@
  */
 #define BOARD_TOUCH_DEBOUNCE_MS 60
 
+/*
+ * A pad whose delta stays above the freeze edge for longer than this is not
+ * being pressed - nobody holds a button for 15 s - but has something resting on
+ * it: water on the wall, a cable against the pad, a reading still settling after
+ * boot. The hardware does not track the benchmark while the delta is above the
+ * freeze edge, so left alone it never recovers: above the press edge the pad is
+ * dead after one phantom press, and below it the pad sits that much less
+ * sensitive. Past this, the benchmark is reset to the present reading.
+ */
+#define BOARD_TOUCH_STUCK_MS 15000
+
 /* Initialise SPI, the ST7305 panel, and LVGL. Returns the LVGL display. */
 lv_display_t *board_display_init(void);
 

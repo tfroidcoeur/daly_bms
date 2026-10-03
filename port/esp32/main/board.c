@@ -214,10 +214,17 @@ typedef struct {
     bool                   active;      /* latched until the release edge */
     bool                   pending;     /* above threshold, not yet for long enough */
     int64_t                above_since; /* us, valid while pending */
+    int64_t                tracked_at;  /* us, last poll the benchmark was tracking */
 } pad_t;
 
 static pad_t g_pad_next  = { .name = "next ", .press_pm = BOARD_TOUCH_NEXT_PERMILLE  };
 static pad_t g_pad_drill = { .name = "drill", .press_pm = BOARD_TOUCH_DRILL_PERMILLE };
+
+/* Above this delta the hardware stops tracking the benchmark. */
+static uint32_t freeze_edge(uint32_t press)
+{
+    return press * BOARD_TOUCH_FREEZE_PCT / 100;
+}
 
 /* The two edges a pad's delta is judged against, for a given benchmark. */
 static void pad_edges(const pad_t *p, uint32_t benchmark, uint32_t *press,
@@ -250,7 +257,7 @@ static void pad_set_hw_thresh(pad_t *p, const touch_channel_config_t *base)
     pad_edges(p, benchmark, &press, &release);
 
     touch_channel_config_t cfg = *base;
-    cfg.active_thresh[0] = press * BOARD_TOUCH_FREEZE_PCT / 100;
+    cfg.active_thresh[0] = freeze_edge(press);
     ESP_ERROR_CHECK(touch_sensor_reconfig_channel(p->chan, &cfg));
 }
 
@@ -382,19 +389,37 @@ static bool pad_read(const pad_t *p, uint32_t *delta, uint32_t *press,
 /*
  * True once per touch, on the edge where it is accepted.
  *
- * Three rules, each for a different way a bare pad lies:
- *   - its own threshold, because the two pads differ 36-fold in signal;
+ * Four rules, each for a different way a pad lies:
+ *   - its own threshold, because two pads need not land a touch equally hard;
  *   - debounce: above the threshold for BOARD_TOUCH_DEBOUNCE_MS unbroken before
  *     it counts, so a brush or a spike on the lead is not a press;
  *   - hysteresis: once active, it stays active until the delta falls to
  *     BOARD_TOUCH_RELEASE_PCT of the threshold, so a finger hovering at the
- *     edge is one press rather than a burst.
+ *     edge is one press rather than a burst;
+ *   - a stuck guard: a benchmark held frozen for BOARD_TOUCH_STUCK_MS is reset,
+ *     so something resting on the pad cannot leave it dead or half-blind.
  */
 static bool pad_pressed(pad_t *p, int64_t now)
 {
     uint32_t delta, press, release, benchmark;
 
     if (!pad_read(p, &delta, &press, &release, &benchmark)) {
+        return false;
+    }
+
+    if (delta <= freeze_edge(press)) {
+        p->tracked_at = now;
+    } else if (now - p->tracked_at > (int64_t)BOARD_TOUCH_STUCK_MS * 1000) {
+        /* The new benchmark is the reading as it stands, so the delta drops to
+         * zero and an active pad releases on the next poll. If a finger really
+         * was still there, lifting it reads below the benchmark, which the
+         * filter follows at once. */
+        const touch_chan_benchmark_config_t reset = { .do_reset = true };
+        touch_channel_config_benchmark(p->chan, &reset);
+        ESP_LOGW(TAG, "touch: %s benchmark frozen for %d s, reset", p->name,
+                 BOARD_TOUCH_STUCK_MS / 1000);
+        p->tracked_at = now;
+        p->pending    = false;
         return false;
     }
 
