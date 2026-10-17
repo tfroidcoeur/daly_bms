@@ -169,4 +169,27 @@ void board_touch_report(void);
  */
 bool board_key_poll(bool *long_press);
 
+/* ---- remote reporting: sleep and wake ---------------------------------- */
+
+#include "remote.h"
+
+/* Why this boot happened, in core/remote.h's terms. */
+remote_wake_t board_wake_cause(void);
+
+/*
+ * The transceiver's Rs pin (CONFIG_BMS_CAN_RS_GPIO): low = normal, high =
+ * standby. Releases any hold left from deep sleep. No-op when not wired.
+ */
+void board_can_standby(bool standby);
+
+/*
+ * Deep sleep until `seconds` pass (UINT32_MAX: no timer), a pad is touched,
+ * or the CAN bus goes dominant. Puts the transceiver in standby and holds the
+ * panel's pins so the "Zzz" on the glass survives. Does not return.
+ */
+void board_deep_sleep(uint32_t seconds);
+
+/* Release the pin holds a deep sleep left; call before touching the panel. */
+void board_release_holds(void);
+
 #endif /* BOARD_H */

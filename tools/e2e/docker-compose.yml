@@ -1,0 +1,41 @@
+# Throwaway WordPress with the avia-bms plugin, for tools/e2e/run.sh.
+name: avia-bms-e2e
+x-db-env: &db-env
+  WORDPRESS_DB_HOST: db
+  WORDPRESS_DB_USER: wp
+  WORDPRESS_DB_PASSWORD: wp
+  WORDPRESS_DB_NAME: wp
+x-volumes: &volumes
+  - wp:/var/www/html
+  - ${AVIA_BMS_DIR}:/var/www/html/wp-content/plugins/avia-bms:ro
+services:
+  db:
+    image: mariadb:11
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+      MARIADB_DATABASE: wp
+      MARIADB_USER: wp
+      MARIADB_PASSWORD: wp
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 2s
+      retries: 60
+  wp:
+    image: wordpress:php8.3-apache
+    depends_on:
+      db:
+        condition: service_healthy
+    environment: *db-env
+    ports:
+      - "127.0.0.1:${E2E_PORT:-8090}:80"
+    volumes: *volumes
+  cli:
+    image: wordpress:cli-php8.3
+    user: "33:33"
+    profiles: ["cli"]
+    depends_on: [wp]
+    environment: *db-env
+    volumes: *volumes
+    entrypoint: ["wp"]
+volumes:
+  wp:

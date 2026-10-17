@@ -31,3 +31,10 @@ CONFIG_LV_USE_ANIMIMG=n
 # and app_main (priority 1, core 0) would then starve IDLE0 into a task
 # watchdog reset. 1000 Hz is what makes that 2 ms an actual 2 ms.
 CONFIG_FREERTOS_HZ=1000
+
+# Wi-Fi + TLS for remote reporting take the image past the default 1 MB app
+# partition; the module has 16 MB, so use the 1.5 MB single-app table.
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
+
+# app_main now also brings up NVS, Wi-Fi and the console before its loop.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192

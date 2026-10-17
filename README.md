@@ -75,6 +75,17 @@ unanswered rather than zero, and with every pack offline the virtual BMS is
 silent. Current uses the real packs' sign convention. Rules are in
 `core/virtual_bms.c`.
 
+## Remote reporting
+
+The display can report the bank to the club website and otherwise keep the
+bus quiet, so the packs reach their own sleep (they stay awake as long as
+anything polls them). It deep-sleeps with "Zzz" on the screen, wakes on a
+touch, on a dashboard request to the virtual BMS, or on a timer to check in
+with the website, and uploads a snapshot when the site asks for one. Details:
+[docs/remote-protocol.md](docs/remote-protocol.md); first flash:
+[docs/bring-up-remote.md](docs/bring-up-remote.md). Off with
+`CONFIG_BMS_REMOTE=n`: polls forever, as before.
+
 ## Layout
 
 ```
@@ -99,6 +110,8 @@ docs/        core design, porting guide, fonts, reference hardware
 | [daly-can-protocol.md](docs/hardware/daly-can-protocol.md) | Daly CAN frames, and what real packs were seen to send |
 | [bring-up-usb-can.md](docs/hardware/bring-up-usb-can.md) | First contact with the packs from a laptop |
 | [bring-up-board.md](docs/hardware/bring-up-board.md) | First flash of the board, touch pads, CAN |
+| [remote-protocol.md](docs/remote-protocol.md) | Device ↔ website protocol, snapshot format, rules on both sides |
+| [bring-up-remote.md](docs/bring-up-remote.md) | First flash of remote reporting: console, checks, the CAN-wake unknown |
 
 ## Building and running on the laptop
 

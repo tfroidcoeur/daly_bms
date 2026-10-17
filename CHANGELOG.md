@@ -3,6 +3,28 @@
 All notable changes to this project. Versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] - unreleased
+
+### Remote reporting
+
+- Reports the bank to the club website (`avia-bms` plugin on avia-dpc.be):
+  the board checks in over HTTPS, and uploads a JSON snapshot when the site
+  asks - a manual refresh or the automatic schedule. Protocol:
+  [docs/remote-protocol.md](docs/remote-protocol.md).
+- The bus is quiet unless someone needs data, so the Daly packs can reach
+  their own sleep: the screen shows "Zzz" and the board deep-sleeps between
+  check-ins. A touch or a dashboard request to the virtual BMS wakes it and
+  the screen for 5 minutes.
+- Wi-Fi, server and device token are set over the USB console (touch a pad
+  within 10 s of a reset) and kept in NVS; secrets are never printed.
+- GPIO18 can drive the transceiver's Rs pin (standby in deep sleep); the KEY
+  button is then no longer read. `CONFIG_BMS_CAN_RS_GPIO`, -1 = not wired.
+- Partition table: 1.5 MB single app.
+- Host: `sim_headless --server` runs the same code against a website,
+  `daly_sim.py --scenario sleepy` has packs that fall asleep, and
+  `tools/e2e/run.sh` tests the whole loop against a real WordPress.
+- Bench checklist: [docs/bring-up-remote.md](docs/bring-up-remote.md).
+
 ## [1.0.0] - 2026-10-03
 
 First release. Tested on the reference setup: three 24S LiFePO4 packs with

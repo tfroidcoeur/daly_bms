@@ -31,6 +31,7 @@
 #include "twai_link.h"
 #include "ui.h"
 #include "virtual_bms.h"
+#include "run_remote.h"
 
 static const char *TAG = "bms";
 
@@ -294,6 +295,12 @@ void app_main(void)
 
 #ifdef CONFIG_BMS_CAN_LOOP_TEST
     can_loop_test();   /* never returns */
+    return;
+#endif
+
+#if defined(CONFIG_BMS_REMOTE) && !defined(CONFIG_BMS_RAW_LOGGER)
+    /* Remote reporting brings up CAN and the panel itself, only when needed. */
+    run_remote();
     return;
 #endif
 

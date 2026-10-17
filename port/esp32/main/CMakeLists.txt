@@ -6,11 +6,18 @@ idf_component_register(
         "board.c"
         "st7305.c"
         "twai_link.c"
+        "run_remote.c"
+        "net.c"
+        "settings.c"
+        "console.c"
         "${REPO_ROOT}/core/daly_proto.c"
         "${REPO_ROOT}/core/bms_model.c"
         "${REPO_ROOT}/core/poller.c"
         "${REPO_ROOT}/core/warnings.c"
         "${REPO_ROOT}/core/virtual_bms.c"
+        "${REPO_ROOT}/core/snapshot_json.c"
+        "${REPO_ROOT}/core/remote.c"
+        "${REPO_ROOT}/core/power.c"
         "${REPO_ROOT}/ui/fonts/fixed_6x13.c"
         "${REPO_ROOT}/ui/fonts/fixed_6x13b.c"
         "${REPO_ROOT}/ui/fonts/fixed_7x14.c"
@@ -31,7 +38,8 @@ idf_component_register(
         "${REPO_ROOT}/ui/fonts"
     REQUIRES
         driver esp_driver_gpio esp_driver_spi esp_driver_twai esp_lcd esp_timer
-        esp_driver_touch_sens
+        esp_driver_touch_sens esp_wifi esp_netif esp_event nvs_flash
+        esp_http_client mbedtls console
 )
 
 # Which way Daly's current points - see DALY_CURRENT_SIGN in core/daly_proto.h.

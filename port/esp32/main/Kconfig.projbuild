@@ -82,3 +82,57 @@ config BMS_INVERT_CURRENT
       charging-below-freezing alarm, for the same reason.
 
 endmenu
+
+menu "Remote reporting"
+
+config BMS_REMOTE
+    bool "Report to the club website and sleep when idle"
+    default y
+    help
+      Check in with the avia-bms plugin, upload a snapshot when it asks, and
+      keep the CAN bus quiet (deep sleep, "Zzz" on the screen) while nobody
+      needs data, so the Daly packs can reach their own sleep. See
+      docs/remote-protocol.md. Off: the old behaviour, polling forever.
+
+config BMS_SERVER_URL
+    string "API base URL"
+    default "https://www.avia-dpc.be/wp-json/avia-bms/v1"
+    depends on BMS_REMOTE
+    help
+      Must be https. The exact host matters: the device follows no
+      redirects. Can be changed at runtime with the console's "server".
+
+config BMS_WIFI_SSID
+    string "Default Wi-Fi network"
+    default ""
+    depends on BMS_REMOTE
+    help
+      Used only until "wifi" is set on the console. Prefer the console:
+      sdkconfig is not committed, but it is still a file on a laptop.
+
+config BMS_WIFI_PASSWORD
+    string "Default Wi-Fi password"
+    default ""
+    depends on BMS_REMOTE
+
+config BMS_LOCAL_TIMEOUT_S
+    int "Seconds of live screen after the last touch or dashboard request"
+    default 300
+    range 10 3600
+    depends on BMS_REMOTE
+
+config BMS_CAN_RS_GPIO
+    int "GPIO wired to the transceiver's Rs pin (-1 = not wired)"
+    default 18
+    range -1 48
+    depends on BMS_REMOTE
+    help
+      Driven low while awake (high-speed mode) and high in deep sleep, which
+      puts the SN65HVD230 in standby: about 0.4 mA instead of up to 10. Its
+      receiver still works, so dashboard traffic still wakes the board.
+
+      18 is the onboard KEY line (P1 pin 15); with this set to 18 the KEY
+      button is no longer read. Set -1 until the wire is fitted and the
+      breakout's Rs-to-GND resistor removed.
+
+endmenu

@@ -5,6 +5,9 @@
 
 #include "esp_check.h"
 #include "esp_log.h"
+#include "esp_sleep.h"
+#include "driver/gpio.h"
+#include "sdkconfig.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -351,6 +354,11 @@ static void touch_init(void)
 
 void board_key_init(void)
 {
+#if defined(CONFIG_BMS_CAN_RS_GPIO) && CONFIG_BMS_CAN_RS_GPIO == BOARD_KEY_GPIO
+    /* GPIO18 is the transceiver's Rs line; board_can_standby() owns it. */
+    touch_init();
+    return;
+#endif
     const gpio_config_t cfg = {
         .pin_bit_mask = 1ULL << BOARD_KEY_GPIO,
         .mode         = GPIO_MODE_INPUT,
@@ -495,6 +503,10 @@ bool board_key_poll(bool *long_press)
         return true;
     }
 
+#if defined(CONFIG_BMS_CAN_RS_GPIO) && CONFIG_BMS_CAN_RS_GPIO == BOARD_KEY_GPIO
+    /* The KEY line drives the transceiver's Rs pin now; only the pads count. */
+    return false;
+#endif
     const bool down = gpio_get_level(BOARD_KEY_GPIO) == 0;  /* active low */
 
     if (down == was_down || now - last_edge < KEY_DEBOUNCE_US) {
@@ -509,4 +521,90 @@ bool board_key_poll(bool *long_press)
     }
     *long_press = (now - down_at) >= KEY_LONG_PRESS_US;
     return true;
+}
+
+/* ---- remote reporting: sleep and wake ---------------------------------- */
+
+#if defined(CONFIG_BMS_CAN_RS_GPIO) && CONFIG_BMS_CAN_RS_GPIO >= 0
+#define RS_GPIO ((gpio_num_t)CONFIG_BMS_CAN_RS_GPIO)
+#endif
+
+/* The panel's control pins: held through deep sleep so the controller sees
+ * no reset and no stray clock, and keeps what it shows. */
+static const gpio_num_t k_panel_pins[] = {
+    BOARD_LCD_CLK, BOARD_LCD_MOSI, BOARD_LCD_CS, BOARD_LCD_DC, BOARD_LCD_RST,
+};
+
+remote_wake_t board_wake_cause(void)
+{
+    switch (esp_sleep_get_wakeup_cause()) {
+    case ESP_SLEEP_WAKEUP_TIMER:    return REMOTE_WAKE_TIMER;
+    case ESP_SLEEP_WAKEUP_TOUCHPAD: return REMOTE_WAKE_TOUCH;
+    case ESP_SLEEP_WAKEUP_EXT1:     return REMOTE_WAKE_CAN;
+    default:                        return REMOTE_WAKE_BOOT;
+    }
+}
+
+void board_release_holds(void)
+{
+    for (size_t i = 0; i < sizeof k_panel_pins / sizeof k_panel_pins[0]; i++) {
+        gpio_hold_dis(k_panel_pins[i]);
+    }
+    gpio_deep_sleep_hold_dis();
+}
+
+void board_can_standby(bool standby)
+{
+#ifdef RS_GPIO
+    gpio_hold_dis(RS_GPIO);
+    const gpio_config_t cfg = {
+        .pin_bit_mask = 1ULL << RS_GPIO,
+        .mode         = GPIO_MODE_OUTPUT,
+    };
+    gpio_config(&cfg);
+    gpio_set_level(RS_GPIO, standby ? 1 : 0);
+#else
+    (void)standby;
+#endif
+}
+
+void board_deep_sleep(uint32_t seconds)
+{
+    /* Transceiver to standby: its receiver still follows the bus, so a
+     * dashboard's first frame pulls RX low and wakes us. */
+    board_can_standby(true);
+#ifdef RS_GPIO
+    gpio_hold_en(RS_GPIO);
+#endif
+
+    for (size_t i = 0; i < sizeof k_panel_pins / sizeof k_panel_pins[0]; i++) {
+        gpio_hold_en(k_panel_pins[i]);
+    }
+    gpio_deep_sleep_hold_en();
+
+    /* RX idles high (recessive); any frame on the bus drives it low. */
+    esp_sleep_enable_ext1_wakeup_io(1ULL << BOARD_CAN_RX, ESP_EXT1_WAKEUP_ANY_LOW);
+
+    if (g_touch != NULL) {
+        /* Either pad wakes us. RTC peripherals stay powered for it, which
+         * costs a little, but a pad that cannot wake the screen is broken. */
+        const touch_sleep_config_t slp = {
+            .slp_wakeup_lvl    = TOUCH_DEEP_SLEEP_WAKEUP,
+            .deep_slp_allow_pd = false,
+            .deep_slp_chan     = NULL,
+        };
+        touch_sensor_stop_continuous_scanning(g_touch);
+        touch_sensor_disable(g_touch);
+        if (touch_sensor_config_sleep_wakeup(g_touch, &slp) != ESP_OK) {
+            ESP_LOGW(TAG, "touch wake-up not available; pads will not wake");
+        }
+        touch_sensor_enable(g_touch);
+        touch_sensor_start_continuous_scanning(g_touch);
+    }
+
+    if (seconds != UINT32_MAX) {
+        esp_sleep_enable_timer_wakeup((uint64_t)seconds * 1000000ULL);
+    }
+    ESP_LOGI(TAG, "deep sleep %s", seconds == UINT32_MAX ? "until touch or bus" : "");
+    esp_deep_sleep_start();
 }
