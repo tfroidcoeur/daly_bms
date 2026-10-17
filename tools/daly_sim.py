@@ -33,6 +33,14 @@ Scenarios:
     winch       winch duty: long standby broken by pulls that ramp the bank to
                 about 600 A (200 A per pack), so the current gauge is driven
                 over its full range
+    sleepy      packs fall asleep after 30 s with no request, as Daly's BMS does,
+                and wake after a few requests go unanswered (--sleep-after,
+                --wake-requests). Pack 3 is the slowest to wake
+
+Dashboard poller, to see what a dashboard that is not ours would get back:
+    --dashboard-every S   send a 0x90 request to --dashboard-addr every S
+                          seconds, from host 0x40, and count the replies
+    --dashboard-file P    with the above, poll only while file P exists
 
 Protocol variants, for the two places Daly's own document and the field layout
 this project was built from disagree:
@@ -48,6 +56,7 @@ that gets exercised without owning a pack of each kind.
 
 import argparse
 import math
+import os
 import random
 import struct
 import sys
@@ -98,6 +107,14 @@ class Pack:
         self.charging = False
         self.base_cell_mv = 3320 + addr
         self.t0 = time.monotonic()
+        # Daly's own power saving; see --sleep-after. Only the sleepy scenario
+        # turns it on, so every other scenario has packs that never sleep.
+        self.sleep_enabled = False
+        self.sleep_after = 30.0
+        self.wake_requests = 3
+        self.asleep = False
+        self.last_request = self.t0
+        self.wake_seen = 0
 
     # -- derived quantities ------------------------------------------------
 
@@ -145,6 +162,27 @@ class Pack:
         rate = 0.02 if self.charging else -0.015
         self.soc = max(3.0, min(100.0, self.soc + rate * dt))
         self.life = (self.life + 1) & 0xFF
+
+    def idle_check(self, now):
+        """Fall asleep once no request has reached the pack for sleep_after s."""
+        if (self.sleep_enabled and not self.asleep and
+                now - self.last_request >= self.sleep_after):
+            self.asleep = True
+            self.wake_seen = 0
+            print(f"\npack {self.addr} asleep", flush=True)
+
+    def request_arrived(self, now):
+        """Note a request addressed to this pack. True if it should answer."""
+        self.last_request = now
+        if not self.asleep:
+            return True
+        # A sleeping pack counts the requests that reach it. The one that wakes
+        # it goes unanswered too, so the pack only answers from the next one.
+        self.wake_seen += 1
+        if self.wake_seen >= self.wake_requests:
+            self.asleep = False
+            print(f"\npack {self.addr} awake", flush=True)
+        return False
 
     # -- protocol ----------------------------------------------------------
 
@@ -216,6 +254,7 @@ class Pack:
 def apply_scenario(name, packs):
     for p in packs:
         p.charging = name == "charging"
+        p.sleep_enabled = name == "sleepy"
     if name == "weak-cell":
         packs[1].weak_cell = (6, 120)      # pack 2, cell 7, drifting 120 mV low
     elif name == "alarm":
@@ -231,7 +270,7 @@ def apply_scenario(name, packs):
     elif name == "winch":
         for p in packs:
             p.peak_a = 200          # 3 packs -> about 600 A at the bank
-    elif name not in ("normal", "offline", "charging"):
+    elif name not in ("normal", "offline", "charging", "sleepy"):
         sys.exit(f"unknown scenario: {name}")
 
 
@@ -265,6 +304,22 @@ def main():
                     help="leave bytes 5-7 of 0x94 empty, as Daly's protocol "
                          "document says they are, instead of putting a cycle "
                          "count in 5-6")
+    ap.add_argument("--sleep-after", type=float, default=30.0, metavar="S",
+                    help="sleepy scenario: a pack with no request for S seconds "
+                         "goes to sleep (default 30; the real BMS uses 3600)")
+    ap.add_argument("--wake-requests", type=int, default=3, metavar="N",
+                    help="sleepy scenario: a sleeping pack wakes after N requests "
+                         "addressed to it, all unanswered (default 3). Pack 3 "
+                         "takes 2N")
+    ap.add_argument("--dashboard-every", type=float, default=0.0, metavar="S",
+                    help="send a 0x90 request to --dashboard-addr every S seconds "
+                         "from host 0x40 and count the replies (default 0: off)")
+    ap.add_argument("--dashboard-addr", type=lambda s: int(s, 0), default=0x10,
+                    help="BMS address the dashboard polls (default 0x10)")
+    ap.add_argument("--dashboard-file", metavar="PATH",
+                    help="with --dashboard-every, poll only while PATH exists, "
+                         "so a test can switch the dashboard on and off by "
+                         "touching or removing it")
     args = ap.parse_args()
 
     packs = [Pack(1, 84.0, 1), Pack(2, 79.5, 2), Pack(3, 81.2, 3)]
@@ -274,6 +329,9 @@ def main():
         p.current_sign = -1 if args.invert_current else 1
         if args.no_cycles:
             p.cycles = 0
+        p.sleep_after = args.sleep_after
+        # Pack 3 is the slow waker: twice as many requests before it answers.
+        p.wake_requests = args.wake_requests * (2 if p.addr == 3 else 1)
     by_addr = {p.addr: p for p in packs}
 
     # Only ever see host requests: priority 0x18 in the top bits, source 0x40 in
@@ -288,6 +346,15 @@ def main():
         "can_mask": 0x1F0000FF,
         "extended": True,
     }]
+
+    # Dashboard replies come back from the BMS address to host 0x40, which the
+    # filter above does not take (its low byte is the BMS address). Ask for that
+    # one id exactly. Only when polling, so a plain run listens as it always did.
+    dash_req_id = (PRIO << 24) | (CMD_SOC << 16) | (args.dashboard_addr << 8) | HOST_ADDR
+    dash_resp_id = (PRIO << 24) | (CMD_SOC << 16) | (HOST_ADDR << 8) | args.dashboard_addr
+    if args.dashboard_every > 0:
+        filters.append({"can_id": dash_resp_id, "can_mask": 0x1FFFFFFF,
+                        "extended": True})
 
     try:
         bus = can.Bus(interface=args.interface, channel=args.channel,
@@ -305,10 +372,17 @@ def main():
           f"0x95/0x96 frames numbered from {args.frame_base}"
           f"{', 0x94 bytes 5-7 empty' if args.no_cycles else ''}"
           f"{', current inverted' if args.invert_current else ''}")
+    if args.dashboard_every > 0:
+        print(f"dashboard: 0x90 to 0x{args.dashboard_addr:02X} every "
+              f"{args.dashboard_every:g} s"
+              + (f" while {args.dashboard_file} exists"
+                 if args.dashboard_file else ""))
 
     rng = random.Random(0)
     start = last = time.monotonic()
     requests = replies = 0
+    dash_sent = dash_answered = 0
+    next_poll = next_report = start
 
     with bus:
         while True:
@@ -321,9 +395,35 @@ def main():
 
             for p in packs:
                 p.tick(dt)
+                p.idle_check(now)
+
+            # Looked at on every pass, so touching or removing the file takes
+            # effect within a fraction of a second.
+            dash_on = args.dashboard_every > 0 and (
+                args.dashboard_file is None or os.path.exists(args.dashboard_file))
+            if not dash_on:
+                next_report = now + 10      # first report 10 s after switching on
+            else:
+                if now >= next_poll:
+                    bus.send(can.Message(arbitration_id=dash_req_id,
+                                         data=bytes(8), is_extended_id=True))
+                    dash_sent += 1
+                    next_poll = now + args.dashboard_every
+                    if args.verbose:
+                        print(f"  dash  {dash_req_id:08X} ->")
+                if now >= next_report:
+                    print(f"\ndashboard: sent {dash_sent}, answered {dash_answered}",
+                          flush=True)
+                    next_report = now + 10
 
             msg = bus.recv(timeout=0.2)
             if msg is None or not msg.is_extended_id:
+                continue
+
+            if msg.arbitration_id == dash_resp_id and args.dashboard_every > 0:
+                dash_answered += 1
+                if args.verbose:
+                    print(f"  dash  {msg.arbitration_id:08X} {msg.data.hex(' ')}")
                 continue
 
             cmd = (msg.arbitration_id >> 16) & 0xFF
@@ -335,7 +435,11 @@ def main():
             requests += 1
             resp_id = (PRIO << 24) | (cmd << 16) | (HOST_ADDR << 8) | pack.addr
 
-            for payload in pack.respond(cmd):
+            answer = pack.request_arrived(time.monotonic())
+            if not answer and args.verbose:
+                print(f"  {msg.arbitration_id:08X} asleep, no reply")
+
+            for payload in (pack.respond(cmd) if answer else []):
                 if args.drop and rng.random() < args.drop:
                     if args.verbose:
                         print(f"  drop  {resp_id:08X}")

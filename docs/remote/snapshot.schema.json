@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://www.avia-dpc.be/schemas/avia-bms/snapshot-1.json",
+  "title": "Daly BMS bank snapshot, schema 1",
+  "description": "See docs/remote-protocol.md. Integers only; null = not reported yet.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "req", "fw", "uptime_s", "bank", "packs", "warnings"],
+  "properties": {
+    "schema": { "const": 1 },
+    "req": { "type": "string", "pattern": "^[0-9a-f]{16}$" },
+    "fw": { "type": "string", "pattern": "^[0-9]{1,3}(\\.[0-9]{1,3}){2}$" },
+    "uptime_s": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+    "bank": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["online", "mv", "ma", "w", "soc_x10", "state", "charger", "cell_delta_mv"],
+      "properties": {
+        "online": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "mv": { "$ref": "#/$defs/mv_or_null" },
+        "ma": { "$ref": "#/$defs/ma_or_null" },
+        "w": { "$ref": "#/$defs/w_or_null" },
+        "soc_x10": { "$ref": "#/$defs/soc_or_null" },
+        "state": { "$ref": "#/$defs/state" },
+        "charger": { "type": "boolean" },
+        "cell_delta_mv": { "type": "integer", "minimum": 0, "maximum": 65535 }
+      }
+    },
+    "packs": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        { "$ref": "#/$defs/pack", "properties": { "addr": { "const": 1 } } },
+        { "$ref": "#/$defs/pack", "properties": { "addr": { "const": 2 } } },
+        { "$ref": "#/$defs/pack", "properties": { "addr": { "const": 3 } } }
+      ],
+      "items": false
+    },
+    "warnings": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "level", "pack", "text"],
+        "properties": {
+          "code": {
+            "enum": [
+              "pack_offline", "pack_voltage_mismatch", "cell_count_mismatch",
+              "cell_implausible", "cell_spread", "bms_fault", "soc_low",
+              "temp_high", "temp_low", "charging_below_zero"
+            ]
+          },
+          "level": { "enum": ["warn", "alarm"] },
+          "pack": { "type": "integer", "minimum": 0, "maximum": 3 },
+          "text": { "$ref": "#/$defs/text" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "text": { "type": "string", "pattern": "^[A-Za-z0-9 .,:%/()+-]{0,64}$" },
+    "state": { "enum": ["idle", "charging", "discharging"] },
+    "mv_or_null": { "type": ["integer", "null"], "minimum": 0, "maximum": 200000 },
+    "ma_or_null": { "type": ["integer", "null"], "minimum": -2000000, "maximum": 2000000 },
+    "w_or_null": { "type": ["integer", "null"], "minimum": -400000, "maximum": 400000 },
+    "soc_or_null": { "type": ["integer", "null"], "minimum": 0, "maximum": 1000 },
+    "pack": {
+      "type": "object",
+      "required": ["addr", "online"],
+      "properties": { "addr": { "type": "integer" }, "online": { "type": "boolean" } },
+      "if": { "properties": { "online": { "const": false } } },
+      "then": {
+        "additionalProperties": false,
+        "properties": { "addr": true, "online": true }
+      },
+      "else": {
+        "additionalProperties": false,
+        "required": [
+          "addr", "online", "soc_x10", "mv", "ma", "w", "state", "chg_mos", "dsg_mos",
+          "cycles", "remaining_mah", "cell_min_mv", "cell_max_mv", "temp_min_c",
+          "temp_max_c", "cells_mv", "temps_c", "balancing", "faults"
+        ],
+        "properties": {
+          "addr": true,
+          "online": true,
+          "soc_x10": { "$ref": "#/$defs/soc_or_null" },
+          "mv": { "$ref": "#/$defs/mv_or_null" },
+          "ma": { "$ref": "#/$defs/ma_or_null" },
+          "w": { "$ref": "#/$defs/w_or_null" },
+          "state": { "$ref": "#/$defs/state" },
+          "chg_mos": { "type": "boolean" },
+          "dsg_mos": { "type": "boolean" },
+          "cycles": { "type": ["integer", "null"], "minimum": 0, "maximum": 65535 },
+          "remaining_mah": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+          "cell_min_mv": { "type": ["integer", "null"], "minimum": 0, "maximum": 65535 },
+          "cell_max_mv": { "type": ["integer", "null"], "minimum": 0, "maximum": 65535 },
+          "temp_min_c": { "type": ["integer", "null"], "minimum": -128, "maximum": 127 },
+          "temp_max_c": { "type": ["integer", "null"], "minimum": -128, "maximum": 127 },
+          "cells_mv": {
+            "type": ["array", "null"],
+            "minItems": 1,
+            "maxItems": 48,
+            "items": { "type": "integer", "minimum": 0, "maximum": 65535 }
+          },
+          "temps_c": {
+            "type": ["array", "null"],
+            "minItems": 1,
+            "maxItems": 16,
+            "items": { "type": "integer", "minimum": -40, "maximum": 125 }
+          },
+          "balancing": {
+            "type": "array",
+            "maxItems": 48,
+            "items": { "type": "integer", "minimum": 1, "maximum": 48 }
+          },
+          "faults": {
+            "type": "array",
+            "maxItems": 56,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["pos", "trip", "text"],
+              "properties": {
+                "pos": { "type": "integer", "minimum": 0, "maximum": 55 },
+                "trip": { "type": "boolean" },
+                "text": { "$ref": "#/$defs/text" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

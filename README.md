@@ -152,6 +152,7 @@ candump vcan0                               # raw bus
 | `alarm`     | pack 1 raises an alarm flag                                   |
 | `faults`    | enough at once to overflow the footer (`+N more`)             |
 | `winch`     | pulls ramping the bank to ~600 A, past the gauge's range      |
+| `sleepy`    | packs sleep after 30 s idle; pack 3 wakes slowest             |
 
 `--drop 0.15` discards random replies to exercise multi-frame reassembly.
 `daly_sim.py` uses python-can, so it can also drive a real adapter to

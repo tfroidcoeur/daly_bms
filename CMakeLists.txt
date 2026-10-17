@@ -33,6 +33,9 @@ set(BMS_CORE_SOURCES
     core/poller.c
     core/warnings.c
     core/virtual_bms.c
+    core/snapshot_json.c
+    core/remote.c
+    core/power.c
 )
 add_library(bms_core STATIC ${BMS_CORE_SOURCES})
 target_include_directories(bms_core PUBLIC core)
@@ -54,13 +57,32 @@ add_executable(test_core_other_sign tests/test_core.c)
 target_link_libraries(test_core_other_sign PRIVATE bms_core_other_sign)
 add_test(NAME core_other_sign COMMAND test_core_other_sign)
 
+# Remote reporting: snapshot encoder (against the golden fixtures shared with
+# the website plugin), check-in policy, and the power state machine.
+add_executable(test_snapshot tests/test_snapshot.c)
+target_link_libraries(test_snapshot PRIVATE bms_core)
+target_compile_definitions(test_snapshot PRIVATE
+    FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/docs/remote/fixtures")
+add_test(NAME snapshot COMMAND test_snapshot)
+
+add_executable(test_remote tests/test_remote.c)
+target_link_libraries(test_remote PRIVATE bms_core)
+add_test(NAME remote COMMAND test_remote)
+
+add_executable(test_power tests/test_power.c)
+target_link_libraries(test_power PRIVATE bms_core)
+add_test(NAME power COMMAND test_power)
+
 # ---------------------------------------------------------------- headless monitor
+find_package(CURL REQUIRED)
 add_executable(sim_headless
     port/sim/main_headless.c
     port/sim/can_socketcan.c
+    port/sim/remote_loop.c
+    port/sim/http_curl.c
 )
 target_include_directories(sim_headless PRIVATE port/sim)
-target_link_libraries(sim_headless PRIVATE bms_core)
+target_link_libraries(sim_headless PRIVATE bms_core CURL::libcurl)
 target_compile_definitions(sim_headless PRIVATE _GNU_SOURCE)
 
 # ---------------------------------------------------------------- GUI simulator

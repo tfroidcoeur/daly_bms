@@ -7,9 +7,11 @@
 
 static ui_page_t g_page;
 static bool      g_cells_open;
+static bool      g_standby;
 
 static lv_obj_t *g_pages[UI_PAGE_COUNT];
 static lv_obj_t *g_cells_page;
+static lv_obj_t *g_standby_page;
 
 /* ---- formatting ----------------------------------------------------------- */
 
@@ -313,8 +315,11 @@ static void apply_visibility(void)
         }
     }
     lv_obj_add_flag(g_cells_page, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(g_standby_page, LV_OBJ_FLAG_HIDDEN);
 
-    if (g_cells_open) {
+    if (g_standby) {
+        lv_obj_clear_flag(g_standby_page, LV_OBJ_FLAG_HIDDEN);
+    } else if (g_cells_open) {
         lv_obj_clear_flag(g_cells_page, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_clear_flag(g_pages[g_page], LV_OBJ_FLAG_HIDDEN);
@@ -334,10 +339,26 @@ void ui_init(void)
     }
     g_cells_page = ui_page_cells_create(make_page(scr));
 
+    /* Standby: the bus is quiet so the packs can sleep, and this is what stays
+     * on the glass - a reflective panel holds it at no cost. */
+    g_standby_page = make_page(scr);
+    lv_obj_t *zzz = ui_label(g_standby_page, UI_FONT_XXL, "Zzz");
+    lv_obj_center(zzz);
+
     g_page       = UI_PAGE_OVERVIEW;
     g_cells_open = false;
     apply_visibility();
 }
+
+void ui_standby(bool on)
+{
+    if (on != g_standby) {
+        g_standby = on;
+        apply_visibility();
+    }
+}
+
+bool ui_in_standby(void) { return g_standby; }
 
 void ui_input(ui_key_t key)
 {

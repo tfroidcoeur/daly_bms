@@ -9,6 +9,9 @@
  *     ./build/sim_headless can0 --raw      every frame, with its decode alongside
  *     ./build/sim_headless can0 --virtual 0x10
  *                                          also answer as the virtual BMS there
+ *     ./build/sim_headless vcan0 --virtual 0x10 --server URL --token-file F
+ *                                          the remote-reporting firmware: sleep,
+ *                                          wake, check in and upload (remote_loop.c)
  *
  * --raw is the counterpart of CONFIG_BMS_RAW_LOGGER in the firmware, and it
  * drops the kernel filter as well: a pack answering with an identifier we did
@@ -25,6 +28,8 @@
 
 #include "bms_model.h"
 #include "can_socketcan.h"
+#include "http_curl.h"
+#include "remote_loop.h"
 #include "daly_proto.h"
 #include "poller.h"
 #include "virtual_bms.h"
@@ -312,14 +317,33 @@ int main(int argc, char **argv)
     const char *ifname = "vcan0";
     bool raw = false;
     unsigned long vaddr = 0;
+    const char *server = NULL, *token_file = NULL;
+    bool remote = false;
+    remote_opts_t ropts = { 0 };
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--raw") == 0) {
             raw = true;
         } else if (strcmp(argv[i], "--virtual") == 0 && i + 1 < argc) {
             vaddr = strtoul(argv[++i], NULL, 0);
+        } else if (strcmp(argv[i], "--remote") == 0) {
+            remote = true;
+        } else if (strcmp(argv[i], "--server") == 0 && i + 1 < argc) {
+            server = argv[++i];
+            remote = true;
+        } else if (strcmp(argv[i], "--token-file") == 0 && i + 1 < argc) {
+            token_file = argv[++i];
+        } else if (strcmp(argv[i], "--local-timeout") == 0 && i + 1 < argc) {
+            ropts.local_timeout_ms = (uint32_t)strtoul(argv[++i], NULL, 0);
+        } else if (strcmp(argv[i], "--report-timeout") == 0 && i + 1 < argc) {
+            ropts.report_timeout_ms = (uint32_t)strtoul(argv[++i], NULL, 0);
+        } else if (strcmp(argv[i], "--min-checkin") == 0 && i + 1 < argc) {
+            ropts.min_checkin_s = (uint32_t)strtoul(argv[++i], NULL, 0);
         } else if (argv[i][0] == '-') {
-            fprintf(stderr, "usage: %s [interface] [--raw] [--virtual ADDR]\n",
+            fprintf(stderr,
+                    "usage: %s [interface] [--raw] [--virtual ADDR]\n"
+                    "       [--remote | --server URL --token-file FILE]\n"
+                    "       [--local-timeout MS] [--report-timeout MS] [--min-checkin S]\n",
                     argv[0]);
             return 2;
         } else {
@@ -343,6 +367,30 @@ int main(int argc, char **argv)
         return 1;
     }
     signal(SIGINT, on_sigint);
+
+    if (remote) {
+        /* The token comes from a file, not argv, so it stays out of ps. */
+        static http_curl_t curl;
+        static remote_transport_t transport;
+        if (server) {
+            char token[80] = "";
+            FILE *f = token_file ? fopen(token_file, "r") : NULL;
+            if (!f || !fgets(token, sizeof token, f)) {
+                fprintf(stderr, "--server needs --token-file with the device token\n");
+                return 2;
+            }
+            fclose(f);
+            token[strcspn(token, "\r\n")] = '\0';
+            if (!http_curl_init(&curl, &transport, server, token)) {
+                fprintf(stderr, "bad --server URL or token\n");
+                return 2;
+            }
+            ropts.transport = &transport;
+        }
+        const int rc = remote_loop(&link, &vbms, &ropts, &g_stop);
+        can_link_close(&link);
+        return rc;
+    }
 
     if (raw) {
         raw_loop(&link);

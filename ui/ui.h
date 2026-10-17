@@ -110,6 +110,11 @@ void ui_update(const system_model_t *model);
 /* Feed a button event. */
 void ui_input(ui_key_t key);
 
+/* Show "Zzz" instead of the pages (the display is in standby), or go back to
+ * the page that was showing. ui_input() still moves the hidden pages. */
+void ui_standby(bool on);
+bool ui_in_standby(void);
+
 /* Which page is showing, and whether the cell detail overlay is open. */
 ui_page_t ui_current_page(void);
 bool      ui_cells_open(void);

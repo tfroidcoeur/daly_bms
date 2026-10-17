@@ -374,6 +374,7 @@ uint8_t vbms_on_frame(vbms_t *v, const system_model_t *m, uint32_t id,
     }
     const uint8_t cmd       = (uint8_t)(id >> 16);
     const uint8_t requester = (uint8_t)id;
+    v->seen++;
 
     bms_pack_t agg;
     vbms_aggregate(m, &agg);

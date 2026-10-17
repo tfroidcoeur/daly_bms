@@ -51,6 +51,8 @@ typedef struct {
     uint8_t  addr;       /* 0 = disabled */
     uint8_t  life;       /* 0x93's BMS life byte, ours to count */
     uint32_t requests;   /* requests answered, for diagnostics */
+    uint32_t seen;       /* requests to our address, answered or not: a
+                          * dashboard is asking, so the display should wake */
 } vbms_t;
 
 /*
