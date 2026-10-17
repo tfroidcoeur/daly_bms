@@ -142,13 +142,19 @@ M=$(mark)
 touch "$WORK/dashboard"
 wait_for 'dashboard wake' 5 "$M"
 wait_for 'state IDLE -> LOCAL' 5 "$M"
-sleep 4
-rm -f "$WORK/dashboard"
-grep -E 'dashboard: sent [0-9]+, answered [1-9]' "$WORK/daly.log" >/dev/null \
-    || sleep 7
-grep -E 'dashboard: sent [0-9]+, answered [1-9]' "$WORK/daly.log" >/dev/null \
+# daly_sim prints its dashboard summary every 10 s while the dashboard runs.
+for _ in $(seq 1 30); do
+    grep -qE 'dashboard: sent [0-9]+, answered [1-9]' "$WORK/daly.log" && break
+    sleep 1
+done
+grep -qE 'dashboard: sent [0-9]+, answered [1-9]' "$WORK/daly.log" \
     || fail "virtual BMS never answered the dashboard"
-wait_for 'state LOCAL -> IDLE' 10 "$M"
+M2=$(mark)
+sleep 2
+tail -n +"$((M2 + 1))" "$WORK/device.log" | grep -q 'state LOCAL -> IDLE' \
+    && fail "went to standby while the dashboard was still polling"
+rm -f "$WORK/dashboard"
+wait_for 'state LOCAL -> IDLE' 10 "$M2"
 ok "dashboard request -> LOCAL, virtual BMS answers, standby once it stops"
 
 echo "=== touch"
@@ -181,6 +187,25 @@ wait_for 'checkin failed .*next=4s' 10 "$M"
 docker compose start wp >/dev/null
 wait_for 'checkin ok' 60 "$M"
 ok "server down -> failed check-ins with back-off -> recovers"
+
+echo "=== a pack that does not answer"
+kill "$DALY_PID" 2>/dev/null || true
+wait "$DALY_PID" 2>/dev/null || true
+"$PY" "$REPO/tools/daly_sim.py" -i "$IF" --scenario offline > "$WORK/daly-offline.log" 2>&1 &
+DALY_PID=$!
+sleep 16   # the scenario silences pack 3 from 15 s to 35 s after start
+M=$(mark)
+php_eval 'sleep(1); var_export( ! is_wp_error( Avia_BMS_Requests::request_manual( time() + 700 ) ) );' | grep -q true \
+    || fail "manual request refused"
+wait_for 'checkin ok cmd=report' 10 "$M"
+wait_for 'upload 204 .*2/3 packs online' 30 "$M"
+curl -s "$API/snapshot" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)["snapshot"]
+assert d["packs"][2] == {"addr": 3, "online": False}, d["packs"][2]
+assert any(w["code"] == "pack_offline" and w["pack"] == 3 for w in d["warnings"])
+' || fail "offline pack not reported as offline"
+ok "silent pack: uploaded after the collect timeout, marked offline, with a pack_offline alarm"
 
 echo "=== a bad token is refused"
 code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $(printf '0%.0s' {1..64})" "$API/device/checkin")
