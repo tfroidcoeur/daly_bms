@@ -1,6 +1,6 @@
 # Bring-up: remote reporting
 
-Checks for the first flash of the remote-reporting firmware (1.1.0) on the
+Checks for the first flash of the remote-reporting firmware (2.0.0) on the
 real board, in order. Everything here has already run on the laptop
 (`tools/e2e/run.sh`: the same `core/` against a real WordPress and simulated
 packs that fall asleep). What is left is what only the hardware can show.
@@ -102,7 +102,7 @@ after a real HTTPS check-in, say so.
 
 | # | Do | Expect |
 |---|----|--------|
-| 1 | `checkin` on the console | log `check-in ok, none, next in 900 s`; WP admin shows the check-in time, firmware 1.1.0 |
+| 1 | `checkin` on the console | log `check-in ok, none, next in 900 s`; WP admin shows the check-in time, firmware 2.0.0 |
 | 2 | Press Refresh on the page (signed in) | within one interval: log `check-in ok, report`, the bus comes alive, `upload: 204`; the page shows the snapshot with a fresh time |
 | 3 | Leave it alone 5 min | "Zzz" on the screen, log `deep sleep`, no CAN requests (`candump can0` on the bench adapter stays silent) |
 | 4 | Touch a pad | live screen within a second or two; the first touch does not change page |

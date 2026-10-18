@@ -26,7 +26,7 @@
 #include "snapshot_json.h"
 #include "warnings.h"
 
-#define SIM_FW "1.1.0"
+#define SIM_FW "2.0.0"
 
 /* As on the board: a live screen's first snapshot waits for all packs, or
  * this long. */

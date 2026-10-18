@@ -3,7 +3,14 @@
 All notable changes to this project. Versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [1.1.0] - unreleased
+## [2.0.0] - 2026-10-18
+
+Remote reporting to the club website, and a display that is no longer always
+on. A major version because the default behaviour changes: the board stops
+polling and deep-sleeps when nobody uses it, the KEY button is given up for
+the transceiver's Rs pin, and the partition table changes (flash the whole
+image, not just the app). Tested on the bench against the live site: Wi-Fi,
+HTTPS check-in, deep sleep and touch wake.
 
 ### Remote reporting
 
@@ -32,6 +39,19 @@ All notable changes to this project. Versions follow
   at rest), and
   `tools/e2e/run.sh` tests the whole loop against a real WordPress.
 - Bench checklist: [docs/bring-up-remote.md](docs/bring-up-remote.md).
+
+### Fixed during bring-up
+
+- Wi-Fi was never put in station mode, so every connect failed
+  (`ESP_ERR_WIFI_MODE`).
+- The network watchdog restarted the board right after a console `checkin`:
+  it compared against a clock read before the job was posted.
+
+### Documentation
+
+- The Rs rework through the KEY button's pad (lift the 10 kOhm's GND end),
+  resetting the board without a reset button, quitting `idf.py monitor`, and
+  the `bms>` console commands, in the README and the bench checklist.
 
 ## [1.0.0] - 2026-10-03
 
@@ -81,4 +101,5 @@ and an SN65HVD230 transceiver.
   and a touch pad monitor.
 - Host unit tests over the protocol, model, poller, warnings and virtual BMS.
 
+[2.0.0]: https://github.com/tfroidcoeur/daly_bms/releases/tag/v2.0.0
 [1.0.0]: https://github.com/tfroidcoeur/daly_bms/releases/tag/v1.0.0
