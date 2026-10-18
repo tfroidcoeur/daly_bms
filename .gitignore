@@ -5,6 +5,8 @@ compile_commands.json
 
 # Vendor datasheets - fetch with docs/hardware/datasheets/fetch-datasheets.sh
 docs/hardware/datasheets/*.pdf
+# Daly BMS manuals - fetch with docs/hardware/daly/fetch-daly-docs.sh
+docs/hardware/daly/*.pdf
 
 # ESP-IDF
 port/esp32/build/

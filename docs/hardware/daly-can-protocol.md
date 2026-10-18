@@ -325,7 +325,52 @@ display's refresh budget anyway.
 A pack that misses several consecutive rounds is marked offline and drawn as
 `NO DATA` rather than showing stale values.
 
+## Sleep and wake-up
+
+The packs use Daly's blue Smart Active Balance BMS (sold as "Balance BMS
+4S-24S 40A-500A"). The protocol documents say nothing about power states.
+What follows comes from that BMS's manual (see [daly/](daly/README.md)) and
+from Daly's article
+[DALY Smart BMS Control Strategy](https://www.dalybms.com/news/daly-smart-bms-control-strategy/),
+which covers the smart BMS range in general:
+
+- **Going to sleep:** after **3600 s** (default) with no communication, no
+  charge or discharge current and no wake-up signal, the BMS enters low-power
+  mode. The manual rates it at **≤ 1.25 W working and ≤ 0.025 W asleep**.
+- **Waking up:** it returns to working state as soon as it "detects
+  communication signals or charge/discharge currents". The article lists
+  **CAN communication activation wake-up** and 485 communication activation
+  wake-up among the ways to power it on. A discharge of at least 2 A, or a
+  charger at least 2 V above pack voltage, also wakes it.
+- **MOSFETs while asleep:** they stay closed, so the pack keeps supplying
+  power, unless undervoltage is detected, in which case they open.
+- **Activation:** plugging in the sampling cable activates it. Bluetooth is
+  built in. The manual names one button input, the UART port's pin 4, `S1`
+  ("Activate button"). It also has a `KEY` port for a key switch (`KEY+` pin
+  1, `KEY-` pin 4) without saying what the switch does. It does not mention
+  CAN wake-up; only the article does.
+
+What this means for this project: the poller sends a request every 40 ms and
+never stops, including to packs it has marked offline, so each pack hears from
+the bus about every 120 ms. The 3600 s idle timer therefore keeps resetting and
+**the packs stay awake while the display is powered**. By the manual's ratings
+that costs up to about 1.2 W more per pack than sleeping, up to ~3.7 W for
+the three, or ~90 Wh a day. Those are maximums; the real draw is not measured. A pack that fell asleep while the display was off
+should be woken by the first request. Not yet confirmed on this project's own
+packs: let one sleep, then watch with `candump` whether it answers.
+
+The sleep timeout is a setting ("Sleep Waiting Time" in the app,
+PowerDownDelay in Daly's PC software). Forum reports disagree on whether
+raising it to 65535 actually stops the BMS from sleeping:
+<https://diysolarforum.com/threads/disable-sleep-mode-on-daly-bms-via-uart-and-sinowealth.17057/>,
+<https://diysolarforum.com/threads/daly-bms-going-on-sleep-mode-how-to-wake-up.24794/>.
+
 ## Sources
+
+### Daly documents
+
+The protocol PDFs and Daly's manuals are kept in [`daly/`](daly/README.md),
+downloaded by [`daly/fetch-daly-docs.sh`](daly/fetch-daly-docs.sh).
 
 - **Daly CAN Communications Protocol V1.0**, Dongguan Daly Electronics Co., Ltd,
   2019-06-11. Mirrored at
@@ -334,6 +379,19 @@ A pack that misses several consecutive rounds is marked offline and drawn as
 - **Daly UART/485 Communications Protocol V1.2**, 2020-12-22 - same payloads,
   same two rows unrevised:
   <https://robu.in/wp-content/uploads/2021/10/Daly-UART_485-Communications-Protocol-V1.21-1.pdf>
+- **DALY Smart BMS Control Strategy** - sleep mode, wake-up conditions, MOSFET
+  behaviour: <https://www.dalybms.com/news/daly-smart-bms-control-strategy/>
+- **Smart Active Balance BMS User Manual**, the manual for these packs - sleep
+  timer, power ratings, port pinouts (UART pin 4 `S1` is the activate button):
+  <https://www.dalyelec.com/software_jhbe.html>
+- **DALY Smart BMS User Guide** (app guide, hosted by a reseller) - Bluetooth
+  turns off after about an hour idle:
+  <https://www.bigweibattery.com.au/wp-content/uploads/2023/09/DALY-BMS-User-Manual.pdf>
+- Daly manuals for many models, collected by a third party:
+  <https://manuals.plus/category/daly-bms>
+
+### Community
+
 - dbus-serialbattery's Daly drivers, serial and CAN:
   <https://github.com/Louisvdw/dbus-serialbattery/tree/master/etc/dbus-serialbattery/bms>
 - <https://github.com/matthewgream/DalyBMSInterface>
