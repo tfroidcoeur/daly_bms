@@ -318,7 +318,11 @@ static void put_snapshot(out_t *o, const system_model_t *m,
     put(o, "{\"schema\":");
     put_int(o, SNAPSHOT_SCHEMA);
     put(o, ",\"req\":");
-    put_text(o, meta->req);
+    if (meta->req == NULL) {
+        put(o, "null");   /* a live snapshot: nobody asked for it */
+    } else {
+        put_text(o, meta->req);
+    }
     put(o, ",\"fw\":");
     put_text(o, meta->fw);
     put(o, ",\"uptime_s\":");
@@ -342,7 +346,8 @@ size_t snapshot_json_encode(const system_model_t *m, const warning_set_t *w,
                             const snapshot_meta_t *meta, char *buf, size_t cap)
 {
     out_t o = { buf, cap, 0, false };
-    bool ok = meta != NULL && req_ok(meta->req) && meta->fw != NULL;
+    bool ok = meta != NULL && (meta->req == NULL || req_ok(meta->req)) &&
+              meta->fw != NULL;
 
     if (ok) {
         put_snapshot(&o, m, w, meta);

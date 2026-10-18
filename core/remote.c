@@ -12,6 +12,7 @@
 
 #define CHECKIN_PATH         "/device/checkin"
 #define REPORT_PATH          "/device/report"
+#define LIVE_PATH            "/device/live"
 
 /* ---- reply parser ------------------------------------------------------- */
 
@@ -78,10 +79,11 @@ static bool read_string(const char *b, size_t len, size_t *i,
     return true;
 }
 
-/* Reads a bare non-negative integer at b[*i], 0 .. REMOTE_NEXT_S_MAX. No sign,
- * no fraction, no exponent, no leading zeros: anything else stops the number
- * early and the caller's separator check then rejects it. */
-static bool read_next_s(const char *b, size_t len, size_t *i, uint32_t *out)
+/* Reads a bare non-negative integer at b[*i], 0 .. max. No sign, no fraction,
+ * no exponent, no leading zeros: anything else stops the number early and the
+ * caller's separator check then rejects it. */
+static bool read_uint(const char *b, size_t len, size_t *i, uint32_t max,
+                      uint32_t *out)
 {
     size_t j = *i;
     size_t digits = 0;
@@ -102,7 +104,7 @@ static bool read_next_s(const char *b, size_t len, size_t *i, uint32_t *out)
         digits++;
         j++;
     }
-    if (v > REMOTE_NEXT_S_MAX) {
+    if (v > max) {
         return false;
     }
     *out = (uint32_t)v;
@@ -115,6 +117,7 @@ static bool parse_body(const char *b, size_t len, remote_reply_t *r)
     bool seen_cmd = false;
     bool seen_next = false;
     bool seen_req = false;
+    bool seen_live = false;
     size_t i;
 
     if (b == NULL || len == 0 || len > REMOTE_REPLY_MAX) {
@@ -157,10 +160,15 @@ static bool parse_body(const char *b, size_t len, remote_reply_t *r)
             }
             seen_cmd = true;
         } else if (key_is(key, klen, "next_s")) {
-            if (seen_next || !read_next_s(b, len, &i, &r->next_s)) {
+            if (seen_next || !read_uint(b, len, &i, REMOTE_NEXT_S_MAX, &r->next_s)) {
                 return false;
             }
             seen_next = true;
+        } else if (key_is(key, klen, "live_s")) {
+            if (seen_live || !read_uint(b, len, &i, REMOTE_LIVE_S_MAX, &r->live_s)) {
+                return false;
+            }
+            seen_live = true;
         } else if (key_is(key, klen, "req")) {
             const char *v;
             size_t vlen;
@@ -199,6 +207,9 @@ static bool parse_body(const char *b, size_t len, remote_reply_t *r)
     if (!seen_cmd || !seen_next) {
         return false;
     }
+    if (!seen_live) {
+        r->live_s = REMOTE_LIVE_UNSET;
+    }
     /* req goes with report and only with report. */
     if ((r->cmd == REMOTE_CMD_REPORT) != seen_req) {
         return false;
@@ -228,6 +239,7 @@ void remote_state_init(remote_state_t *s, uint32_t min_interval_s)
     s->interval_s      = REMOTE_DEFAULT_NEXT_S;
     s->min_interval_s  = min_interval_s ? min_interval_s : 1u;
     s->checkin_due_now = true;
+    s->live_s          = REMOTE_LIVE_UNSET;
 }
 
 bool remote_state_valid(const remote_state_t *s)
@@ -242,6 +254,9 @@ bool remote_state_valid(const remote_state_t *s)
     }
     if (s->report_count > REMOTE_REPORTS_PER_DAY ||
         s->report_head >= REMOTE_REPORTS_PER_DAY) {
+        return false;
+    }
+    if (s->live_s != REMOTE_LIVE_UNSET && s->live_s > REMOTE_LIVE_S_MAX) {
         return false;
     }
 
@@ -358,6 +373,7 @@ remote_cmd_t remote_checkin(remote_state_t *s, const remote_transport_t *t,
 
     if (success) {
         s->failures = 0;
+        s->live_s = reply.live_s;
         s->interval_s = reply.next_s;
         if (s->interval_s != 0 && s->interval_s < s->min_interval_s) {
             s->interval_s = s->min_interval_s;
@@ -416,4 +432,26 @@ int remote_upload(remote_state_t *s, const remote_transport_t *t,
      * way. */
     s->req[0] = '\0';
     return status;
+}
+
+/* ---- live reports ------------------------------------------------------- */
+
+uint32_t remote_live_interval(const remote_state_t *s, uint32_t device_live_s)
+{
+    const uint32_t v = s->live_s != REMOTE_LIVE_UNSET ? s->live_s : device_live_s;
+    return v > REMOTE_LIVE_S_MAX ? REMOTE_LIVE_S_MAX : v;
+}
+
+int remote_live(const remote_transport_t *t, const char *json, size_t len,
+                uint32_t interval_s)
+{
+    char path[64];
+    char resp[REMOTE_REPLY_MAX];
+    size_t resp_len = 0;
+
+    if (json == NULL || len == 0 || interval_s == 0) {
+        return REMOTE_ERR_TRANSPORT;
+    }
+    snprintf(path, sizeof path, LIVE_PATH "?every=%u", (unsigned)interval_s);
+    return t->request(t->ctx, "POST", path, json, len, resp, sizeof resp, &resp_len);
 }

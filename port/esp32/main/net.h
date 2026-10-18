@@ -26,6 +26,12 @@ void net_down(void);
 
 bool net_is_up(void);
 
+/* The access point's signal in dBm; false when not connected. */
+bool net_rssi(int *dbm);
+
+/* True once a connect has been tried since boot (for the screen's icon). */
+bool net_tried(void);
+
 /* Fill `t` with the esp_http_client transport. */
 void net_transport(remote_transport_t *t);
 

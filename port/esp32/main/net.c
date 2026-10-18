@@ -32,10 +32,35 @@ static bool g_started;
 RTC_DATA_ATTR static uint8_t g_ap_channel;
 RTC_DATA_ATTR static uint8_t g_ap_bssid[6];
 
+static uint8_t g_last_reason;
+
+/* The access point's reason, in words, for the few that point at a fix. */
+static const char *reason_text(uint8_t r)
+{
+    switch (r) {
+    case WIFI_REASON_NO_AP_FOUND:
+        return "network not found (name, range, or 5 GHz only?)";
+    case WIFI_REASON_AUTH_FAIL:
+    case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT:
+    case WIFI_REASON_HANDSHAKE_TIMEOUT:
+        return "refused: wrong password?";
+    case WIFI_REASON_NO_AP_FOUND_W_COMPATIBLE_SECURITY:
+    case WIFI_REASON_NO_AP_FOUND_IN_AUTHMODE_THRESHOLD:
+        return "network found, but its security type is not accepted";
+    case WIFI_REASON_NO_AP_FOUND_IN_RSSI_THRESHOLD:
+        return "signal too weak";
+    case WIFI_REASON_ASSOC_LEAVE:
+        return "disconnected by us";
+    default:
+        return "see esp_wifi_types.h";
+    }
+}
+
 static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     (void)arg;
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
+        g_last_reason = ((const wifi_event_sta_disconnected_t *)data)->reason;
         xEventGroupClearBits(g_events, BIT_UP);
         xEventGroupSetBits(g_events, BIT_FAIL);
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
@@ -67,6 +92,9 @@ void net_init(const settings_t *s)
     const wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
     ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
+    /* A client of the club's access point; without this, set_config and
+     * connect fail with ESP_ERR_WIFI_MODE. */
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED,
                                                on_event, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
@@ -87,7 +115,11 @@ static bool try_connect(bool fast, uint32_t timeout_ms)
     }
 
     xEventGroupClearBits(g_events, BIT_UP | BIT_FAIL);
-    esp_wifi_set_config(WIFI_IF_STA, &wc);
+    const esp_err_t cfg_err = esp_wifi_set_config(WIFI_IF_STA, &wc);
+    if (cfg_err != ESP_OK) {
+        ESP_LOGW(TAG, "esp_wifi_set_config: %s", esp_err_to_name(cfg_err));
+        return false;
+    }
     if (!g_started) {
         if (esp_wifi_start() != ESP_OK) {
             return false;
@@ -96,13 +128,32 @@ static bool try_connect(bool fast, uint32_t timeout_ms)
         /* Between beacons the radio sleeps; the link stays associated. */
         esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
     }
-    esp_wifi_connect();
-
-    const EventBits_t bits = xEventGroupWaitBits(g_events, BIT_UP | BIT_FAIL,
-                                                 pdFALSE, pdFALSE,
-                                                 pdMS_TO_TICKS(timeout_ms));
-    if (bits & BIT_UP) {
-        return true;
+    /* A first association is often refused once (the access point still
+     * clearing an old one), so retry until the time is up. */
+    const int64_t deadline = esp_timer_get_time() + (int64_t)timeout_ms * 1000;
+    for (;;) {
+        g_last_reason = 0;
+        const esp_err_t err = esp_wifi_connect();
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "esp_wifi_connect: %s", esp_err_to_name(err));
+        }
+        const int64_t left_us = deadline - esp_timer_get_time();
+        const EventBits_t bits = xEventGroupWaitBits(
+            g_events, BIT_UP | BIT_FAIL, pdFALSE, pdFALSE,
+            pdMS_TO_TICKS(left_us > 0 ? left_us / 1000 : 0));
+        if (bits & BIT_UP) {
+            return true;
+        }
+        if (!(bits & BIT_FAIL)) {
+            break;   /* timed out */
+        }
+        ESP_LOGW(TAG, "Wi-Fi \"%s\": reason %u, %s", g_settings->ssid,
+                 (unsigned)g_last_reason, reason_text(g_last_reason));
+        xEventGroupClearBits(g_events, BIT_FAIL);
+        if (esp_timer_get_time() + 500 * 1000 >= deadline) {
+            return false;   /* the last disconnect has landed already */
+        }
+        vTaskDelay(pdMS_TO_TICKS(500));
     }
     /* Let this attempt's disconnect event land now, so it cannot end the
      * next attempt early. */
@@ -112,8 +163,68 @@ static bool try_connect(bool fast, uint32_t timeout_ms)
     return false;
 }
 
+static const char *auth_name(wifi_auth_mode_t a)
+{
+    switch (a) {
+    case WIFI_AUTH_OPEN:            return "open";
+    case WIFI_AUTH_WEP:             return "WEP";
+    case WIFI_AUTH_WPA_PSK:         return "WPA";
+    case WIFI_AUTH_WPA2_PSK:        return "WPA2";
+    case WIFI_AUTH_WPA_WPA2_PSK:    return "WPA/WPA2";
+    case WIFI_AUTH_WPA3_PSK:        return "WPA3";
+    case WIFI_AUTH_WPA2_WPA3_PSK:   return "WPA2/WPA3";
+    case WIFI_AUTH_WPA2_ENTERPRISE: return "enterprise";
+    default:                        return "other";
+    }
+}
+
+/* Once per boot, after a failed connect: what the radio can actually see, so
+ * a wrong name, a 5 GHz-only network or a weak signal shows in the log. */
+static void log_visible_networks(void)
+{
+    static bool done;
+    if (done || !g_started) {
+        return;
+    }
+    done = true;
+
+    if (esp_wifi_scan_start(NULL, true) != ESP_OK) {
+        ESP_LOGW(TAG, "scan failed");
+        return;
+    }
+    uint16_t n = 12;
+    wifi_ap_record_t aps[12];
+    if (esp_wifi_scan_get_ap_records(&n, aps) != ESP_OK) {
+        return;
+    }
+    ESP_LOGW(TAG, "%u networks visible (2.4 GHz only):", (unsigned)n);
+    for (uint16_t i = 0; i < n; i++) {
+        ESP_LOGW(TAG, "  \"%s\"  ch %u  %d dBm  %s%s", (const char *)aps[i].ssid,
+                 (unsigned)aps[i].primary, aps[i].rssi, auth_name(aps[i].authmode),
+                 strcmp((const char *)aps[i].ssid, g_settings->ssid) == 0 ? "  <- configured" : "");
+    }
+}
+
+static volatile bool g_tried;
+
+bool net_tried(void)
+{
+    return g_tried;
+}
+
+bool net_rssi(int *dbm)
+{
+    wifi_ap_record_t ap;
+    if (!net_is_up() || esp_wifi_sta_get_ap_info(&ap) != ESP_OK) {
+        return false;
+    }
+    *dbm = ap.rssi;
+    return true;
+}
+
 bool net_up(uint32_t timeout_ms)
 {
+    g_tried = true;
     if (net_is_up()) {
         return true;
     }
@@ -129,6 +240,7 @@ bool net_up(uint32_t timeout_ms)
         return true;
     }
     ESP_LOGW(TAG, "Wi-Fi \"%s\" not reachable", g_settings->ssid);
+    log_visible_networks();
     return false;
 }
 

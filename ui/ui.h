@@ -115,6 +115,27 @@ void ui_input(ui_key_t key);
 void ui_standby(bool on);
 bool ui_in_standby(void);
 
+/*
+ * The Wi-Fi corner icon: four small signal bars, top right. Out of range is
+ * normal at the winch, so it stays small and never takes over the page.
+ *   UI_WIFI_NONE  no icon (no Wi-Fi set up, or nothing tried yet)
+ *   UI_WIFI_DOWN  four hollow bars: set up, not connected
+ *   UI_WIFI_UP    `bars` (1..4) of the four filled, by signal strength
+ * Hidden on the standby page.
+ */
+typedef enum {
+    UI_WIFI_NONE = 0,
+    UI_WIFI_DOWN,
+    UI_WIFI_UP,
+} ui_wifi_t;
+
+#define UI_WIFI_BARS 4
+
+void ui_set_wifi(ui_wifi_t state, uint8_t bars);
+
+/* Signal bars (1..4) for an RSSI in dBm. */
+uint8_t ui_wifi_bars(int rssi_dbm);
+
 /* Which page is showing, and whether the cell detail overlay is open. */
 ui_page_t ui_current_page(void);
 bool      ui_cells_open(void);

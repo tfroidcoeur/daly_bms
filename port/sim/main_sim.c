@@ -14,6 +14,8 @@
  *   SIM_SCRIPT="3000:n,1500:n,1500:N"   time_ms:key pairs, applied in order
  *   SIM_SHOT_DIR=shots                  write a PPM after each scripted step
  *   SIM_QUIT_MS=12000                   exit after this long
+ *   SIM_WIFI=up3 | down                 show the Wi-Fi corner icon (the GUI
+ *                                       sim has no network of its own)
  */
 #include <signal.h>
 #include <stdio.h>
@@ -56,6 +58,12 @@ int main(int argc, char **argv)
         return 1;
     }
     ui_init();
+    const char *wifi = getenv("SIM_WIFI");
+    if (wifi && strncmp(wifi, "up", 2) == 0) {
+        ui_set_wifi(UI_WIFI_UP, (uint8_t)atoi(wifi + 2));
+    } else if (wifi && strcmp(wifi, "down") == 0) {
+        ui_set_wifi(UI_WIFI_DOWN, 0);
+    }
 
     system_model_t model;
     poller_t poller;

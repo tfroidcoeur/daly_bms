@@ -298,10 +298,14 @@ static void test_bad_req(void)
         CHECK_EQ(buf[0], '\0');
     }
 
+    /* NULL is a live snapshot, which nobody asked for. */
     meta.req = NULL;
     memset(g_out, SENTINEL, sizeof g_out);
-    CHECK_EQ(snapshot_json_encode(&m, &w, &meta, g_out, sizeof g_out), 0);
-    CHECK_EQ(g_out[0], '\0');
+    CHECK(snapshot_json_encode(&m, &w, &meta, g_out, sizeof g_out) > 0);
+    {
+        const char *head = "{\"schema\":1,\"req\":null,\"fw\":";
+        CHECK(strncmp(g_out, head, strlen(head)) == 0);
+    }
 }
 
 static void test_clean_text(void)

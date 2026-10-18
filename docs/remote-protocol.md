@@ -20,6 +20,10 @@ device                                   server
   |   wake packs, collect (≤ 60 s)         |
   |-- POST /device/report {snapshot} ----->|
   |<-- 204 --------------------------------|
+  ...
+  |   screen on (touch, dashboard)         |
+  |-- POST /device/live?every=5 {snapshot} |   every live interval, unasked
+  |<-- 204 --------------------------------|
 ```
 
 Base URL: `https://www.avia-dpc.be/wp-json/avia-bms/v1`. The device uses the
@@ -48,6 +52,7 @@ Reply `200`, `Content-Type: application/json`, at most 512 bytes:
 ```json
 {"cmd":"none","next_s":900}
 {"cmd":"report","next_s":900,"req":"3f9a0c27d1e84b56"}
+{"cmd":"none","next_s":900,"live_s":10}
 ```
 
 | Field    | Rule                                                                  |
@@ -55,6 +60,7 @@ Reply `200`, `Content-Type: application/json`, at most 512 bytes:
 | `cmd`    | `"none"` or `"report"`. Anything else: the device treats the whole reply as invalid. |
 | `next_s` | integer, `0` = timed check-ins disabled, else `1` … `1209600` (14 days). Out of range: reply invalid. |
 | `req`    | present iff `cmd` is `"report"`; `^[0-9a-f]{16}$`. Otherwise: reply invalid. |
+| `live_s` | optional integer `0` … `3600`: seconds between live reports while the screen is on, `0` = off. Absent: the device uses its own setting (console `live`, default 5). Out of range: reply invalid. |
 
 An invalid reply, a non-200 status, a transport error or a timeout counts as a
 failed check-in (back-off, below). Other status codes the server uses: `401`
@@ -77,6 +83,34 @@ The `req` inside must be the server's **currently outstanding** request id
 The device does not retry a report; the server re-issues the request at a later
 check-in if it still wants one.
 
+## `POST /device/live?every=<s>`
+
+While the screen is on (LOCAL: a touch, a dashboard request, or current
+flowing in the bank keeps it so), the device posts a snapshot every live
+interval without being asked. Same body as a report, but `"req": null`.
+`every` is the device's interval in seconds (`1` … `3600`); the page uses it
+to tell whether live data is still coming in (at most three intervals, and at
+least 15 s, old). A live snapshot replaces the stored one like a report does.
+
+| Status | Meaning                                        |
+|--------|------------------------------------------------|
+| `204`  | stored                                         |
+| `400`  | not a valid snapshot, `req` not null, or `every` missing or out of range |
+| `401`  | bad or missing token                           |
+| `409`  | live reports are switched off in WP admin      |
+| `413`  | body over 16 KiB                               |
+| `429`  | more than 30 in a minute                       |
+
+The first live snapshot of a screen session waits until every pack has given
+its full data, or 15 s. Failures (out of Wi-Fi range while winching is normal)
+are not retried: the next one comes at the usual interval. Live reports do not
+count against the report cap.
+
+Security note: unlike a report, a live snapshot is not tied to a request, so a
+stolen token can overwrite the page's snapshot at will (30 a minute). It was
+already able to answer every real request falsely; rotating the token in WP
+admin ends both, and `live_s` = 0 refuses live snapshots altogether.
+
 ## Snapshot
 
 Compact JSON, keys in exactly this order (the firmware's golden tests compare
@@ -87,7 +121,7 @@ millivolts, `_ma` milliamps, `_w` watts, `_x10` tenths, `_c` °C, `_mah` mAh.
 ```json
 {
   "schema": 1,
-  "req": "3f9a0c27d1e84b56",
+  "req": "3f9a0c27d1e84b56",            (null in a live snapshot)
   "fw": "1.1.0",
   "uptime_s": 41,
   "bank": {

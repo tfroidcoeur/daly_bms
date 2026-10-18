@@ -15,13 +15,21 @@ All notable changes to this project. Versions follow
   their own sleep: the screen shows "Zzz" and the board deep-sleeps between
   check-ins. A touch or a dashboard request to the virtual BMS wakes it and
   the screen for 5 minutes.
+- While the screen is on, a live snapshot every 5 s (`live <s>` on the
+  console, or WP admin; 0 = off) to `POST /device/live`; the page updates
+  itself and shows "Live". Out of Wi-Fi range it simply keeps trying.
+- The screen stays on while any pack reports charging or discharging.
+- Wi-Fi icon, top right: filled signal bars by strength when connected,
+  hollow when set up but not connected, none when there is no Wi-Fi.
 - Wi-Fi, server and device token are set over the USB console (touch a pad
-  within 10 s of a reset) and kept in NVS; secrets are never printed.
+  within 10 s of a reset) and kept in NVS; secrets are never printed. A failed
+  connect logs the access point's reason and the networks in range.
 - GPIO18 can drive the transceiver's Rs pin (standby in deep sleep); the KEY
   button is then no longer read. `CONFIG_BMS_CAN_RS_GPIO`, -1 = not wired.
 - Partition table: 1.5 MB single app.
 - Host: `sim_headless --server` runs the same code against a website,
-  `daly_sim.py --scenario sleepy` has packs that fall asleep, and
+  `daly_sim.py --scenario sleepy` has packs that fall asleep (`idle`: a bank
+  at rest), and
   `tools/e2e/run.sh` tests the whole loop against a real WordPress.
 - Bench checklist: [docs/bring-up-remote.md](docs/bring-up-remote.md).
 

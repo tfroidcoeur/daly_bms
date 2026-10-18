@@ -121,18 +121,29 @@ config BMS_LOCAL_TIMEOUT_S
     range 10 3600
     depends on BMS_REMOTE
 
+config BMS_LIVE_S
+    int "Seconds between live reports while the screen is on (0 = off)"
+    default 5
+    range 0 3600
+    depends on BMS_REMOTE
+    help
+      While the screen is live (a touch or a dashboard keeps it awake), the
+      board posts a snapshot to the website this often. The console's
+      `live <s>` overrides it, and a value set in WP admin overrides both.
+
 config BMS_CAN_RS_GPIO
     int "GPIO wired to the transceiver's Rs pin (-1 = not wired)"
     default 18
     range -1 48
     depends on BMS_REMOTE
     help
-      Driven low while awake (high-speed mode) and high in deep sleep, which
+      Driven low while awake and high in deep sleep, which
       puts the SN65HVD230 in standby: about 0.4 mA instead of up to 10. Its
       receiver still works, so dashboard traffic still wakes the board.
 
       18 is the onboard KEY line (P1 pin 15); with this set to 18 the KEY
-      button is no longer read. Set -1 until the wire is fitted and the
-      breakout's Rs-to-GND resistor removed.
+      button is no longer read. Set -1 until the wire is fitted: the
+      breakout's Rs-to-GND resistor lifted at its GND end and wired to
+      GPIO18 (docs/bring-up-remote.md, step 0).
 
 endmenu

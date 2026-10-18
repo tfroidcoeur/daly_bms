@@ -56,6 +56,9 @@ static const char *TAG = "remote";
 #define CONSOLE_GATE_MS   10000         /* touch within this after reset */
 #define NET_TASK_STACK    (12 * 1024)   /* TLS + the cert bundle; see the log */
 #define NET_TASK_PRIO     1
+/* A live screen's first snapshot waits for every pack's data, or this long
+ * if a pack never answers. */
+#define LIVE_FIRST_MS     15000
 
 /*
  * NOINIT, not DATA: the bootloader reloads RTC data on every reset that is not
@@ -80,13 +83,13 @@ RTC_NOINIT_ATTR static uint32_t g_hung;
 static settings_t g_settings;
 static remote_transport_t g_transport;
 
-typedef enum { JOB_CHECKIN, JOB_UPLOAD } job_kind_t;
+typedef enum { JOB_CHECKIN, JOB_UPLOAD, JOB_LIVE } job_kind_t;
 
 typedef struct {
     job_kind_t   kind;
     remote_cmd_t cmd;      /* CHECKIN */
     bool         ok;       /* CHECKIN */
-    int          status;   /* UPLOAD */
+    int          status;   /* UPLOAD, LIVE */
     char         req[REMOTE_REQ_LEN + 1];   /* CHECKIN, when cmd is REPORT */
 } result_t;
 
@@ -100,6 +103,11 @@ static QueueHandle_t g_results;
 static char   g_query[96];
 static char   g_json[SNAPSHOT_JSON_MAX];
 static size_t g_json_len;
+/* Live snapshots have their own buffer: a report can be encoded into g_json
+ * while a live post is still reading this one. */
+static char     g_live_json[SNAPSHOT_JSON_MAX];
+static size_t   g_live_len;
+static uint32_t g_live_every;
 
 static uint32_t now_ms(void)
 {
@@ -146,6 +154,17 @@ static void net_task(void *arg)
                      r.ok ? "ok" : (up ? "failed" : "no Wi-Fi"),
                      r.cmd == REMOTE_CMD_REPORT ? "report" : "none",
                      next == UINT32_MAX ? "never " : "", next == UINT32_MAX ? 0 : next);
+        } else if (job == JOB_LIVE) {
+            /* Out of Wi-Fi range while winching is normal: the attempt fails
+             * quietly and the next one comes at the usual interval. */
+            r.status = net_up(WIFI_TIMEOUT_MS)
+                           ? remote_live(&g_transport, g_live_json, g_live_len, g_live_every)
+                           : remote_live(&offline, g_live_json, g_live_len, g_live_every);
+            static int last_status;
+            if (r.status != last_status) {
+                last_status = r.status;
+                ESP_LOGI(TAG, "live: %d%s", r.status, r.status == 204 ? "" : " (keeps trying)");
+            }
         } else {
             if (g_json_len == 0) {
                 g_rs.req[0] = '\0';   /* nothing to send; the request is spent */
@@ -317,6 +336,9 @@ void run_remote(void)
     bool input_pending = false, input_long = false;
     char report_req[REMOTE_REQ_LEN + 1] = "";
     uint32_t last_ui = 0, last_health = 0;
+    pwr_state_t last_state = pwr.state;
+    uint32_t local_since = now_ms(), last_live = 0;
+    bool live_started = false;
 
     for (;;) {
         const uint32_t now = now_ms();
@@ -389,6 +411,25 @@ void run_remote(void)
                 }
                 upload_wanted = false;
             }
+            /* While the screen is live, a snapshot every few seconds - after
+             * any check-in, which keeps its place. */
+            const uint32_t live_s = remote_live_interval(&g_rs, g_settings.live_s);
+            if (g_jobs_out == 0 && !upload_wanted && pwr.state == PWR_LOCAL && live_s > 0 &&
+                !remote_checkin_due(&g_rs, now_s()) &&
+                (pwr_snapshot_complete(&bus.model) || now - local_since >= LIVE_FIRST_MS) &&
+                (!live_started || now - last_live >= live_s * 1000u)) {
+                warning_set_t w;
+                warnings_evaluate(&bus.model, &w);
+                const snapshot_meta_t meta = { NULL, BMS_FW_VERSION, now_s() };
+                g_live_len = snapshot_json_encode(&bus.model, &w, &meta, g_live_json,
+                                                  sizeof g_live_json);
+                g_live_every = live_s;
+                if (g_live_len) {
+                    post_job(JOB_LIVE);
+                }
+                last_live = now;
+                live_started = true;
+            }
             if (g_jobs_out == 0) {
                 if (console_take_checkin_request()) {
                     g_rs.checkin_due_now = true;
@@ -409,7 +450,17 @@ void run_remote(void)
         }
 
         /* ---- what power.c wants ---- */
+        if (pwr_bank_active(&bus.model)) {
+            pwr_on_bank_active(&pwr, now);   /* current flows: keep the screen on */
+        }
         const pwr_out_t out = pwr_tick(&pwr, now, pwr_snapshot_complete(&bus.model));
+        if (pwr.state != last_state) {
+            if (pwr.state == PWR_LOCAL) {
+                local_since  = now;
+                live_started = false;   /* the first one once the data is in */
+            }
+            last_state = pwr.state;
+        }
 
         if (out.poll_can != polling) {
             polling = out.poll_can;
@@ -451,6 +502,14 @@ void run_remote(void)
                 }
                 if (now - last_ui >= UI_UPDATE_MS) {
                     last_ui = now;
+                    int rssi;
+                    if (!remote_ok || !net_tried()) {
+                        ui_set_wifi(UI_WIFI_NONE, 0);
+                    } else if (net_rssi(&rssi)) {
+                        ui_set_wifi(UI_WIFI_UP, ui_wifi_bars(rssi));
+                    } else {
+                        ui_set_wifi(UI_WIFI_DOWN, 0);
+                    }
                     ui_update(&bus.model);
                 }
                 board_lvgl_unlock();
@@ -476,7 +535,9 @@ void run_remote(void)
              * the bus stays quiet. */
         }
 
-        if (g_jobs_out > 0 && now - g_job_since > JOB_WATCHDOG_MS) {
+        /* A fresh clock: a job posted earlier in this pass is stamped after
+         * `now`, and `now - g_job_since` would wrap to ~49 days. */
+        if (g_jobs_out > 0 && now_ms() - g_job_since > JOB_WATCHDOG_MS) {
             ESP_LOGE(TAG, "network request still running after %d s; restarting",
                      JOB_WATCHDOG_MS / 1000);
             g_hung = HUNG_MAGIC;

@@ -28,7 +28,8 @@
 #define SNAPSHOT_JSON_MAX    8192
 
 typedef struct {
-    const char *req;        /* the server's request id, SNAPSHOT_REQ_LEN hex */
+    const char *req;        /* the server's request id, SNAPSHOT_REQ_LEN hex;
+                               NULL for a live snapshot ("req":null) */
     const char *fw;         /* "1.1.0" */
     uint32_t    uptime_s;
 } snapshot_meta_t;
@@ -36,7 +37,8 @@ typedef struct {
 /*
  * Encode `m` and `w` into `buf`. Returns the length written, excluding the
  * NUL it always appends, or 0 if `cap` is too small (the buffer then holds an
- * empty string) or `meta->req` is not SNAPSHOT_REQ_LEN lowercase hex.
+ * empty string) or `meta->req` is neither NULL nor SNAPSHOT_REQ_LEN lowercase
+ * hex.
  */
 size_t snapshot_json_encode(const system_model_t *m, const warning_set_t *w,
                             const snapshot_meta_t *meta, char *buf, size_t cap);

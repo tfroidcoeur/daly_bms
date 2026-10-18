@@ -92,6 +92,17 @@ void pwr_on_upload_done(pwr_t *p, uint32_t now_ms);
  */
 bool pwr_snapshot_complete(const system_model_t *m);
 
+/* True if any online pack says (0x93) it is charging or discharging. */
+bool pwr_bank_active(const system_model_t *m);
+
+/*
+ * The bank is charging or discharging - someone is winching, or a charger is
+ * on. In LOCAL this restarts the screen's timeout, like a touch, so the screen
+ * stays on for as long as current flows. In IDLE and REPORT it does nothing:
+ * the bus is quiet there, or only collecting for a report.
+ */
+void pwr_on_bank_active(pwr_t *p, uint32_t now_ms);
+
 /*
  * Advance timeouts and say what to do. `snapshot_complete` is
  * pwr_snapshot_complete() for the current model. A report is uploaded once

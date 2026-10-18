@@ -27,6 +27,8 @@
 #define REMOTE_BACKOFF_CAP_S    3600u       /* never more than 60 min */
 #define REMOTE_REPORTS_PER_DAY  24
 #define REMOTE_DEEP_SLEEP_MIN_S 60u         /* shorter waits are spent awake */
+#define REMOTE_LIVE_S_MAX       3600u       /* longest live-report interval */
+#define REMOTE_LIVE_UNSET       UINT32_MAX  /* the server left it to the device */
 
 /* What a transport call returns besides an HTTP status. */
 #define REMOTE_ERR_TRANSPORT    (-1)        /* DNS, TCP, TLS, timeout */
@@ -59,6 +61,7 @@ typedef struct {
     remote_cmd_t cmd;
     uint32_t     next_s;                     /* 0 = timed check-ins disabled */
     char         req[REMOTE_REQ_LEN + 1];    /* "" unless cmd is REPORT */
+    uint32_t     live_s;                     /* 0 = off, or REMOTE_LIVE_UNSET */
 } remote_reply_t;
 
 typedef enum {
@@ -68,7 +71,7 @@ typedef enum {
     REMOTE_WAKE_CAN,
 } remote_wake_t;
 
-#define REMOTE_STATE_MAGIC 0x52454d31u      /* "REM1" */
+#define REMOTE_STATE_MAGIC 0x52454d32u      /* "REM2" */
 
 typedef struct {
     uint32_t magic;
@@ -82,6 +85,8 @@ typedef struct {
     uint32_t report_at_s[REMOTE_REPORTS_PER_DAY];  /* ring of report times */
     uint8_t  report_count;        /* entries used in the ring, <= 24 */
     uint8_t  report_head;         /* next slot to overwrite */
+    uint32_t live_s;              /* the server's live interval; 0 = off,
+                                     REMOTE_LIVE_UNSET = the device's own */
 } remote_state_t;
 
 /*
@@ -113,10 +118,11 @@ bool remote_wait_is_deep(uint32_t seconds);
 
 /*
  * Parse a check-in reply strictly (see the table in docs/remote-protocol.md).
- * Accepts exactly the keys cmd, next_s and req in any order, with optional
- * whitespace; rejects unknown keys, duplicates, wrong types, out-of-range
- * numbers, a malformed req and anything over REMOTE_REPLY_MAX. Returns false
- * and leaves `out` zeroed on any of those.
+ * Accepts exactly the keys cmd, next_s, req and the optional live_s (0 ..
+ * REMOTE_LIVE_S_MAX; REMOTE_LIVE_UNSET in `out` when absent) in any order, with
+ * optional whitespace; rejects unknown keys, duplicates, wrong types,
+ * out-of-range numbers, a malformed req and anything over REMOTE_REPLY_MAX.
+ * Returns false and leaves `out` zeroed on any of those.
  */
 bool remote_parse_reply(const char *body, size_t len, remote_reply_t *out);
 
@@ -144,5 +150,21 @@ remote_cmd_t remote_checkin(remote_state_t *s, const remote_transport_t *t,
  */
 int remote_upload(remote_state_t *s, const remote_transport_t *t,
                   const char *json, size_t len, uint32_t now_s);
+
+/*
+ * Seconds between live reports while the screen is on: the server's value
+ * from the last good check-in if it sent one, else `device_live_s` (the
+ * console setting). 0 means no live reports.
+ */
+uint32_t remote_live_interval(const remote_state_t *s, uint32_t device_live_s);
+
+/*
+ * Send a live snapshot (snapshot_json_encode() with a NULL req) unasked:
+ * POST /device/live?every=<interval_s>. Live reports do not count against the
+ * report cap and are not retried. Returns the HTTP status or a REMOTE_ERR_*
+ * value; 204 is success.
+ */
+int remote_live(const remote_transport_t *t, const char *json, size_t len,
+                uint32_t interval_s);
 
 #endif /* REMOTE_H */

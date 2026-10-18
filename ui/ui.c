@@ -13,6 +13,11 @@ static lv_obj_t *g_pages[UI_PAGE_COUNT];
 static lv_obj_t *g_cells_page;
 static lv_obj_t *g_standby_page;
 
+static lv_obj_t *g_wifi;                    /* the corner icon's container */
+static lv_obj_t *g_wifi_bar[UI_WIFI_BARS];
+static ui_wifi_t g_wifi_state;
+static uint8_t   g_wifi_bars;
+
 /* ---- formatting ----------------------------------------------------------- */
 
 void ui_fmt_volts(char *buf, size_t n, int32_t mv)
@@ -305,6 +310,72 @@ static lv_obj_t *make_page(lv_obj_t *parent)
     return page;
 }
 
+/* ---- the Wi-Fi corner icon ------------------------------------------------ */
+
+#define WIFI_BAR_W    3
+#define WIFI_BAR_GAP  1
+#define WIFI_ICON_W   (UI_WIFI_BARS * (WIFI_BAR_W + WIFI_BAR_GAP) - WIFI_BAR_GAP)
+#define WIFI_ICON_H   10
+
+static lv_obj_t *make_wifi_icon(lv_obj_t *parent)
+{
+    lv_obj_t *box = lv_obj_create(parent);
+    lv_obj_remove_style_all(box);
+    lv_obj_set_size(box, WIFI_ICON_W, WIFI_ICON_H);
+    /* In the corner of the page padding: clear of every page's title row. */
+    lv_obj_align(box, LV_ALIGN_TOP_RIGHT, -2, 2);
+    lv_obj_clear_flag(box, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+
+    for (int i = 0; i < UI_WIFI_BARS; i++) {
+        const int h = 4 + i * 2;   /* 4, 6, 8, 10 px: rising like a phone's */
+        lv_obj_t *b = lv_obj_create(box);
+        lv_obj_remove_style_all(b);
+        lv_obj_set_size(b, WIFI_BAR_W, h);
+        lv_obj_set_pos(b, i * (WIFI_BAR_W + WIFI_BAR_GAP), WIFI_ICON_H - h);
+        lv_obj_set_style_border_color(b, lv_color_black(), 0);
+        lv_obj_set_style_border_width(b, 1, 0);
+        lv_obj_set_style_bg_color(b, lv_color_black(), 0);
+        g_wifi_bar[i] = b;
+    }
+    return box;
+}
+
+static void wifi_apply(void)
+{
+    if (g_wifi == NULL) {
+        return;
+    }
+    if (g_standby || g_wifi_state == UI_WIFI_NONE) {
+        lv_obj_add_flag(g_wifi, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    lv_obj_clear_flag(g_wifi, LV_OBJ_FLAG_HIDDEN);
+    for (int i = 0; i < UI_WIFI_BARS; i++) {
+        const bool filled = g_wifi_state == UI_WIFI_UP && i < g_wifi_bars;
+        lv_obj_set_style_bg_opa(g_wifi_bar[i], filled ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+    }
+}
+
+void ui_set_wifi(ui_wifi_t state, uint8_t bars)
+{
+    if (bars < 1) bars = 1;
+    if (bars > UI_WIFI_BARS) bars = UI_WIFI_BARS;
+    if (state == g_wifi_state && (state != UI_WIFI_UP || bars == g_wifi_bars)) {
+        return;
+    }
+    g_wifi_state = state;
+    g_wifi_bars  = bars;
+    wifi_apply();
+}
+
+uint8_t ui_wifi_bars(int rssi_dbm)
+{
+    if (rssi_dbm >= -55) return 4;
+    if (rssi_dbm >= -65) return 3;
+    if (rssi_dbm >= -75) return 2;
+    return 1;
+}
+
 /* ---- lifecycle ------------------------------------------------------------ */
 
 static void apply_visibility(void)
@@ -324,6 +395,7 @@ static void apply_visibility(void)
     } else {
         lv_obj_clear_flag(g_pages[g_page], LV_OBJ_FLAG_HIDDEN);
     }
+    wifi_apply();
 }
 
 void ui_init(void)
@@ -344,6 +416,9 @@ void ui_init(void)
     g_standby_page = make_page(scr);
     lv_obj_t *zzz = ui_label(g_standby_page, UI_FONT_XXL, "Zzz");
     lv_obj_center(zzz);
+
+    /* Created last, so it draws over whichever page is showing. */
+    g_wifi = make_wifi_icon(scr);
 
     g_page       = UI_PAGE_OVERVIEW;
     g_cells_open = false;

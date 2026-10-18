@@ -7,7 +7,8 @@
  * model - this clears on every wake, so the difference does not show.
  *
  * It prints one line per event instead of redrawing a screen, so a test script
- * can follow it: "state LOCAL -> IDLE", "checkin ok cmd=report", "upload 204".
+ * can follow it: "state LOCAL -> IDLE", "checkin ok cmd=report", "upload 204",
+ * "live 204" (live reports while the screen is on, --live S).
  * Typing t + Enter is a touch on the pad.
  */
 #include "remote_loop.h"
@@ -26,6 +27,10 @@
 #include "warnings.h"
 
 #define SIM_FW "1.1.0"
+
+/* As on the board: a live screen's first snapshot waits for all packs, or
+ * this long. */
+#define LIVE_FIRST_MS 15000
 
 static const char *state_name(pwr_state_t s)
 {
@@ -105,6 +110,9 @@ int remote_loop(can_link_t *link, vbms_t *vbms, const remote_opts_t *o,
     pwr_state_t shown = pwr.state;
     uint32_t vbms_seen = vbms->seen;
     bool sleeping_logged = false;
+    uint32_t local_since = 0, last_live = 0;
+    bool live_started = false;
+    int live_status = 0;
     srand((unsigned)time(NULL));
 
     printf("remote: %s, state %s\n", o->transport ? "server set" : "no server",
@@ -173,10 +181,17 @@ int remote_loop(can_link_t *link, vbms_t *vbms, const remote_opts_t *o,
             sleeping_logged = false;
         }
 
+        if (pwr_bank_active(&bus.model)) {
+            pwr_on_bank_active(&pwr, now);   /* current flows: keep the screen on */
+        }
         const pwr_out_t out =
             pwr_tick(&pwr, now, pwr_snapshot_complete(&bus.model));
 
         if (pwr.state != shown) {
+            if (pwr.state == PWR_LOCAL) {
+                local_since  = now;
+                live_started = false;
+            }
             if (pwr.state == PWR_IDLE) {
                 /* The bus goes quiet now; drop what it said, so the first
                  * dashboard request after a long sleep is not answered from
@@ -211,6 +226,28 @@ int remote_loop(can_link_t *link, vbms_t *vbms, const remote_opts_t *o,
             printf("upload %d (%u bytes, %u/%u packs online)\n", status,
                    (unsigned)n, s.online_count, BMS_PACK_COUNT);
             pwr_on_upload_done(&pwr, now);
+        }
+
+        /* Live reports while the screen is on. */
+        const uint32_t live_s = remote_live_interval(&rs, o->live_s);
+        if (o->transport && pwr.state == PWR_LOCAL && live_s > 0 &&
+            (pwr_snapshot_complete(&bus.model) || now - local_since >= LIVE_FIRST_MS) &&
+            (!live_started || now - last_live >= live_s * 1000u)) {
+            warning_set_t w;
+            warnings_evaluate(&bus.model, &w);
+            static char json[SNAPSHOT_JSON_MAX];
+            const snapshot_meta_t meta = { NULL, SIM_FW, now_s };
+            const size_t n = snapshot_json_encode(&bus.model, &w, &meta, json, sizeof json);
+            const int status = n ? remote_live(o->transport, json, n, live_s) : -1;
+            /* One line per change, not one every few seconds. */
+            if (status != live_status || !live_started) {
+                const bms_summary_t s = bms_model_summary(&bus.model);
+                printf("live %d (every %us, %u/%u packs online)\n", status, live_s,
+                       s.online_count, BMS_PACK_COUNT);
+                live_status = status;
+            }
+            last_live = now;
+            live_started = true;
         }
 
         if (out.sleep_now && !sleeping_logged) {

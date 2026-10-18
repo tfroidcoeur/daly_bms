@@ -112,6 +112,14 @@ static void test_parser_accepts(void)
     CHECK_EQ(r.next_s, 1209600);
     CHECK(parse_str("{\"cmd\":\"none\",\"next_s\":0}", &r));
     CHECK_EQ(r.next_s, 0);
+    CHECK(r.live_s == REMOTE_LIVE_UNSET);
+
+    CHECK(parse_str("{\"cmd\":\"none\",\"next_s\":900,\"live_s\":5}", &r));
+    CHECK_EQ(r.live_s, 5);
+    CHECK(parse_str("{\"live_s\":0,\"cmd\":\"none\",\"next_s\":900}", &r));
+    CHECK_EQ(r.live_s, 0);
+    CHECK(parse_str("{\"cmd\":\"none\",\"next_s\":900,\"live_s\":3600}", &r));
+    CHECK_EQ(r.live_s, 3600);
 
     /* 512 bytes is the largest reply: pad a valid one to exactly that. */
     {
@@ -174,6 +182,67 @@ static void test_parser_rejects(void)
         static const char nul_body[] = "{\"cmd\":\"none\",\0\"next_s\":900}";
         expect_reject("NUL in the middle", nul_body, sizeof nul_body - 1);
     }
+}
+
+static void test_parser_live_s_rejects(void)
+{
+    REJECT("{\"cmd\":\"none\",\"next_s\":900,\"live_s\":3601}");
+    REJECT("{\"cmd\":\"none\",\"next_s\":900,\"live_s\":-1}");
+    REJECT("{\"cmd\":\"none\",\"next_s\":900,\"live_s\":\"5\"}");
+    REJECT("{\"cmd\":\"none\",\"next_s\":900,\"live_s\":5.5}");
+    REJECT("{\"cmd\":\"none\",\"next_s\":900,\"live_s\":05}");
+    REJECT("{\"cmd\":\"none\",\"next_s\":900,\"live_s\":5,\"live_s\":5}");
+    REJECT("{\"cmd\":\"none\",\"next_s\":900,\"live_s\":null}");
+}
+
+static void test_live(void)
+{
+    remote_state_t s;
+    fake_t f;
+    remote_transport_t t;
+    bool ok;
+
+    memset(&f, 0, sizeof f);
+    t = transport_of(&f);
+    remote_state_init(&s, 1);
+
+    /* The device's own setting until the server says otherwise. */
+    CHECK_EQ(remote_live_interval(&s, 5), 5);
+    CHECK_EQ(remote_live_interval(&s, 0), 0);
+    reply_with(&f, 200, "{\"cmd\":\"none\",\"next_s\":900,\"live_s\":20}");
+    checkin(&s, &f, 100, 0, &ok);
+    CHECK(ok);
+    CHECK_EQ(remote_live_interval(&s, 5), 20);
+    reply_with(&f, 200, "{\"cmd\":\"none\",\"next_s\":900,\"live_s\":0}");
+    checkin(&s, &f, 200, 0, &ok);
+    CHECK_EQ(remote_live_interval(&s, 5), 0);
+    /* No live_s: back to the device's own. */
+    reply_with(&f, 200, "{\"cmd\":\"none\",\"next_s\":900}");
+    checkin(&s, &f, 300, 0, &ok);
+    CHECK_EQ(remote_live_interval(&s, 5), 5);
+    /* A failed check-in keeps what the server said last. */
+    reply_with(&f, 200, "{\"cmd\":\"none\",\"next_s\":900,\"live_s\":20}");
+    checkin(&s, &f, 400, 0, &ok);
+    reply_with(&f, 500, NULL);
+    checkin(&s, &f, 500, 0, &ok);
+    CHECK(!ok);
+    CHECK_EQ(remote_live_interval(&s, 5), 20);
+    /* The device setting is clamped too. */
+    remote_state_init(&s, 1);
+    CHECK_EQ(remote_live_interval(&s, 99999), REMOTE_LIVE_S_MAX);
+
+    /* The request. */
+    reply_with(&f, 204, NULL);
+    f.calls = 0;
+    CHECK_EQ(remote_live(&t, "{}", 2, 5), 204);
+    CHECK_EQ(f.calls, 1);
+    CHECK(strcmp(f.method, "POST") == 0);
+    CHECK(strcmp(f.path, "/device/live?every=5") == 0);
+    CHECK_EQ(f.body_len, 2);
+    CHECK_EQ(remote_live(&t, "{}", 2, 0), REMOTE_ERR_TRANSPORT);
+    CHECK_EQ(remote_live(&t, NULL, 0, 5), REMOTE_ERR_TRANSPORT);
+    CHECK_EQ(f.calls, 1);
+
 }
 
 static void test_parser_zeroes_out_on_reject(void)
@@ -521,6 +590,8 @@ int main(void)
         { "parser: accepts",             test_parser_accepts },
         { "parser: rejects",             test_parser_rejects },
         { "parser: zeroes out",          test_parser_zeroes_out_on_reject },
+        { "parser: live_s rejects",      test_parser_live_s_rejects },
+        { "live reports",                test_live },
         { "checkin: schedules next",     test_checkin_schedules_next },
         { "checkin: query string",       test_query_string },
         { "checkin: failures",           test_checkin_failures },

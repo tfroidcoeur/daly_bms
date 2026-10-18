@@ -339,11 +339,14 @@ int main(int argc, char **argv)
             ropts.report_timeout_ms = (uint32_t)strtoul(argv[++i], NULL, 0);
         } else if (strcmp(argv[i], "--min-checkin") == 0 && i + 1 < argc) {
             ropts.min_checkin_s = (uint32_t)strtoul(argv[++i], NULL, 0);
+        } else if (strcmp(argv[i], "--live") == 0 && i + 1 < argc) {
+            ropts.live_s = (uint32_t)strtoul(argv[++i], NULL, 0);
         } else if (argv[i][0] == '-') {
             fprintf(stderr,
                     "usage: %s [interface] [--raw] [--virtual ADDR]\n"
                     "       [--remote | --server URL --token-file FILE]\n"
-                    "       [--local-timeout MS] [--report-timeout MS] [--min-checkin S]\n",
+                    "       [--local-timeout MS] [--report-timeout MS] [--min-checkin S]\n"
+                    "       [--live S]\n",
                     argv[0]);
             return 2;
         } else {

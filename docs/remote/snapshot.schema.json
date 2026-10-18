@@ -8,7 +8,7 @@
   "required": ["schema", "req", "fw", "uptime_s", "bank", "packs", "warnings"],
   "properties": {
     "schema": { "const": 1 },
-    "req": { "type": "string", "pattern": "^[0-9a-f]{16}$" },
+    "req": { "type": ["string", "null"], "pattern": "^[0-9a-f]{16}$", "description": "the request id of a report; null in a live snapshot" },
     "fw": { "type": "string", "pattern": "^[0-9]{1,3}(\\.[0-9]{1,3}){2}$" },
     "uptime_s": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
     "bank": {

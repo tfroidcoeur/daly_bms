@@ -95,6 +95,19 @@ static int cmd_min_checkin(int argc, char **argv)
     return 0;
 }
 
+static int cmd_live(int argc, char **argv)
+{
+    if (closed()) return 1;
+    char *end = NULL;
+    const unsigned long v = argc == 2 ? strtoul(argv[1], &end, 10) : 0;
+    if (argc != 2 || *end != '\0' || !settings_set_live(g_s, (uint32_t)v)) {
+        printf("usage: live <seconds, 0 (off) - 3600>\n");
+        return 1;
+    }
+    printf("live %lu s (a value set in WP admin overrides this)\n", v);
+    return 0;
+}
+
 static int cmd_status(int argc, char **argv)
 {
     (void)argc;
@@ -105,6 +118,8 @@ static int cmd_status(int argc, char **argv)
     printf("server      %s\n", g_s->server);
     printf("token       %s\n", g_s->token[0] ? "set" : "NOT SET");
     printf("min_checkin %lu s\n", (unsigned long)g_s->min_checkin_s);
+    printf("live        %lu s%s\n", (unsigned long)g_s->live_s,
+           g_s->live_s ? "" : " (off)");
     printf("console     %s\n", console_is_open() ? "open" : "closed");
     printf("network     %s\n", g_network ? "running" : "not started (reset after setting wifi and token)");
     return 0;
@@ -147,6 +162,8 @@ void console_start(settings_t *s)
         { .command = "token", .help = "token <device token from WP admin>", .func = cmd_token },
         { .command = "min_checkin", .help = "min_checkin <s>: refuse shorter intervals",
           .func = cmd_min_checkin },
+        { .command = "live", .help = "live <s>: live reports while the screen is on, 0 = off",
+          .func = cmd_live },
         { .command = "status", .help = "show settings (secrets as set/not set)",
           .func = cmd_status },
         { .command = "checkin", .help = "check in with the website now", .func = cmd_checkin },

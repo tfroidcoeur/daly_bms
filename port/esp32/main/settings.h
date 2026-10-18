@@ -22,6 +22,7 @@ typedef struct {
     char     server[SETTINGS_URL_MAX + 1];
     char     token[SETTINGS_TOKEN_LEN + 1];
     uint32_t min_checkin_s;
+    uint32_t live_s;          /* live-report interval, 0 = off */
 } settings_t;
 
 /* Open NVS (initialising it if needed) and load, falling back to Kconfig. */
@@ -33,6 +34,7 @@ bool settings_set_wifi(settings_t *s, const char *ssid, const char *pass);
 bool settings_set_server(settings_t *s, const char *url);
 bool settings_set_token(settings_t *s, const char *token);
 bool settings_set_min_checkin(settings_t *s, uint32_t seconds);
+bool settings_set_live(settings_t *s, uint32_t seconds);   /* 0 .. 3600 */
 
 /* True when there is enough to try the website at all. */
 bool settings_remote_ready(const settings_t *s);

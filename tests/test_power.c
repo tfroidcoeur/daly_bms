@@ -212,6 +212,45 @@ static void test_snapshot_complete(void)
     CHECK(pwr_snapshot_complete(&m));
 }
 
+static void test_bank_active(void)
+{
+    /* Current flowing keeps the screen on, like a touch. */
+    pwr_t p;
+    pwr_init(&p, short_cfg(), REMOTE_WAKE_BOOT, 0);
+    pwr_on_bank_active(&p, 900);
+    expect_out(pwr_tick(&p, 1899, false), true, true, false, false);
+    expect_out(pwr_tick(&p, 1900, false), false, false, false, true);
+
+    /* It never wakes the screen: in IDLE nothing changes. */
+    pwr_on_bank_active(&p, 2000);
+    CHECK_EQ(p.state, PWR_IDLE);
+    expect_out(pwr_tick(&p, 2000, false), false, false, false, true);
+
+    /* Nor does it turn a report into a live screen. */
+    pwr_t r;
+    pwr_init(&r, short_cfg(), REMOTE_WAKE_TIMER, 0);
+    pwr_on_report_cmd(&r, 100);
+    pwr_on_bank_active(&r, 150);
+    CHECK_EQ(r.state, PWR_REPORT);
+
+    /* Which packs count: online and charging (1) or discharging (2). */
+    system_model_t m;
+    bms_model_init(&m);
+    CHECK(!pwr_bank_active(&m));
+    m.pack[1].online = true;
+    m.pack[1].charge_state = 0;
+    CHECK(!pwr_bank_active(&m));
+    m.pack[1].charge_state = 1;
+    CHECK(pwr_bank_active(&m));
+    m.pack[1].charge_state = 2;
+    CHECK(pwr_bank_active(&m));
+    m.pack[1].online = false;          /* an offline pack's last word is old */
+    CHECK(!pwr_bank_active(&m));
+    m.pack[2].online = true;
+    m.pack[2].charge_state = 3;        /* not a state Daly sends */
+    CHECK(!pwr_bank_active(&m));
+}
+
 static void test_defaults(void)
 {
     pwr_cfg_t c = pwr_default_cfg();
@@ -240,6 +279,7 @@ int main(void)
         { "second report keeps since",   test_second_report_keeps_since },
         { "ms wraparound",               test_wraparound },
         { "snapshot complete",           test_snapshot_complete },
+        { "bank active keeps LOCAL",     test_bank_active },
         { "default config",              test_defaults },
     };
 

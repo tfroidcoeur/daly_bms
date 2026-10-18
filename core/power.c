@@ -48,6 +48,13 @@ void pwr_on_vbms_request(pwr_t *p, uint32_t now_ms)
     p->state = PWR_LOCAL;
 }
 
+void pwr_on_bank_active(pwr_t *p, uint32_t now_ms)
+{
+    if (p->state == PWR_LOCAL) {
+        p->last_activity_ms = now_ms;
+    }
+}
+
 void pwr_on_report_cmd(pwr_t *p, uint32_t now_ms)
 {
     /* A second command while one is pending must not push the timeout out,
@@ -83,6 +90,17 @@ bool pwr_snapshot_complete(const system_model_t *m)
         }
     }
     return true;
+}
+
+bool pwr_bank_active(const system_model_t *m)
+{
+    for (uint8_t i = 0; i < BMS_PACK_COUNT; i++) {
+        const bms_pack_t *k = &m->pack[i];
+        if (k->online && (k->charge_state == 1 || k->charge_state == 2)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 pwr_out_t pwr_tick(pwr_t *p, uint32_t now_ms, bool snapshot_complete)

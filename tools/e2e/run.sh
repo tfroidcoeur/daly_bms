@@ -166,6 +166,21 @@ wait_for 'checkin ok' 5 "$M"
 wait_for 'state LOCAL -> IDLE' 10 "$M"
 ok "touch -> live screen and an immediate check-in -> standby"
 
+echo "=== live reports while the screen is on"
+php_eval 'Avia_BMS_Settings::set_live_s(1);'
+M=$(mark)
+echo t >&3
+wait_for 'checkin ok' 5 "$M"
+wait_for 'live 204 \(every 1s, 3/3 packs online\)' 20 "$M"
+curl -s "$API/snapshot" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["live_every"] == 1, d["live_every"]; assert d["snapshot"]["packs"][0]["online"]' \
+    || fail "public snapshot not live"
+wait_for 'state LOCAL -> IDLE' 20 "$M"
+sleep 16   # past the page's grace for a 1 s interval
+curl -s "$API/snapshot" | python3 -c 'import json,sys; assert json.load(sys.stdin)["live_every"] is None' \
+    || fail "still live after the screen went to standby"
+php_eval 'Avia_BMS_Settings::set_live_s(null);'
+ok "screen on -> live snapshots (live_s from WP admin) -> page live; standby -> they stop"
+
 echo "=== check-ins disabled"
 M=$(mark)
 php_eval 'Avia_BMS_Settings::set_checkin_s(0);'
@@ -187,6 +202,24 @@ wait_for 'checkin failed .*next=4s' 10 "$M"
 docker compose start wp >/dev/null
 wait_for 'checkin ok' 60 "$M"
 ok "server down -> failed check-ins with back-off -> recovers"
+
+echo "=== current flowing keeps the screen on"
+kill "$DALY_PID" 2>/dev/null || true
+wait "$DALY_PID" 2>/dev/null || true
+"$PY" "$REPO/tools/daly_sim.py" -i "$IF" --scenario normal > "$WORK/daly-normal.log" 2>&1 &
+DALY_PID=$!
+M=$(mark)
+echo t >&3
+wait_for 'state IDLE -> LOCAL' 5 "$M"
+sleep 10   # over three times the 3 s local timeout
+tail -n +"$((M + 1))" "$WORK/device.log" | grep -q 'state LOCAL -> IDLE' \
+    && fail "screen went to standby while the bank was discharging"
+kill "$DALY_PID" 2>/dev/null || true
+wait "$DALY_PID" 2>/dev/null || true
+"$PY" "$REPO/tools/daly_sim.py" -i "$IF" --scenario idle > "$WORK/daly-idle.log" 2>&1 &
+DALY_PID=$!
+wait_for 'state LOCAL -> IDLE' 15 "$M"
+ok "discharging keeps the screen on past its timeout; at rest it goes to standby"
 
 echo "=== a pack that does not answer"
 kill "$DALY_PID" 2>/dev/null || true

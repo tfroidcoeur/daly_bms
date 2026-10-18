@@ -81,7 +81,12 @@ The display can report the bank to the club website and otherwise keep the
 bus quiet, so the packs reach their own sleep (they stay awake as long as
 anything polls them). It deep-sleeps with "Zzz" on the screen, wakes on a
 touch, on a dashboard request to the virtual BMS, or on a timer to check in
-with the website, and uploads a snapshot when the site asks for one. Details:
+with the website, and uploads a snapshot when the site asks for one. While
+the screen is on it also posts a live snapshot every few seconds (5 s by
+default), and the website page updates itself; the screen stays on for as
+long as a pack reports charging or discharging. A small signal-bar icon in
+the top right corner shows the Wi-Fi: filled bars when connected, hollow ones
+when out of range (normal at the winch), none when no Wi-Fi is set up. Details:
 [docs/remote-protocol.md](docs/remote-protocol.md); first flash:
 [docs/bring-up-remote.md](docs/bring-up-remote.md). Off with
 `CONFIG_BMS_REMOTE=n`: polls forever, as before.
@@ -246,11 +251,72 @@ One USB-C cable carries flashing and the console (USB serial/JTAG), as
 |------------------------------------|-----------------------------------------------------------------------------------------|
 | Nothing at `/dev/ttyACM*`          | Download mode: hold **BOOT**, click **PWR**, release BOOT. PWR is a latch (long press off) |
 | `Permission denied` on the port    | `sudo usermod -aG dialout $USER`, then log in again                                     |
-| Flash succeeds, board does not run | `idf.py -C port/esp32 erase-flash`, then flash again                                    |
+| Flash succeeds, board does not run | `idf.py -C port/esp32 erase-flash`, then flash again (this also wipes the Wi-Fi and token) |
 | Wrong port picked                  | add `-p /dev/ttyACM0`                                                                   |
 
 [bring-up-board.md](docs/hardware/bring-up-board.md) walks through the first
-flash.
+flash. Flashing keeps the NVS partition, so the Wi-Fi, token and server
+settings survive it; only `erase-flash` clears them.
+
+### Monitor, reset and quitting
+
+The board has no reset button. Ways to restart it:
+
+| How | Notes |
+|-----|-------|
+| `Ctrl+T`, then `Ctrl+R` in `idf.py monitor` | Resets over the USB cable. Starting `idf.py monitor` also resets the board once. |
+| Unplug and replug USB-C | A power-on reset. Not with an 18650 in the holder: the board keeps running on it. |
+| Long press **PWR** (off), short press (on) | PWR is a latch. |
+
+Don't hold **BOOT** while the board starts: that is download mode, and the
+firmware does not run.
+
+| In `idf.py monitor` | |
+|---------------------|--|
+| `Ctrl+]` | Quit the monitor (or `Ctrl+T`, then `Ctrl+X`) |
+| `Ctrl+T`, `Ctrl+R` | Reset the board |
+| `Ctrl+T`, `Ctrl+H` | All monitor keys |
+
+Quit the monitor before flashing from another terminal: only one program can
+hold `/dev/ttyACM0`.
+
+### The `bms>` console
+
+With remote reporting on, the board's settings are set over the same USB
+serial line, in `idf.py monitor` or any serial terminal on `/dev/ttyACM0`.
+
+**Opening it:** reset the board, wait for the boot log, then **touch a pad
+within 10 seconds** - the log says `console open for 300 s - type help` and
+the `bms>` prompt appears. Don't hold the pad through the reset: the pads
+calibrate at boot and would take the finger for the baseline. The console
+closes after 5 minutes; while it is open the board does not deep-sleep.
+
+| Command | What it does |
+|---------|--------------|
+| `help` | Lists the commands |
+| `wifi <ssid> [password]` | Wi-Fi network, 2.4 GHz only. Quote a name with spaces: `wifi "Avia Clubhuis" secret`. No password for an open network. A password is 8-63 characters, or 64 hex digits. |
+| `token <64 hex>` | The device token from WP admin → Settings → Avia BMS → *Rotate device token* |
+| `server <https URL>` | The API base; default `https://www.avia-dpc.be/wp-json/avia-bms/v1`. Only `https://` is accepted. |
+| `live <s>` | Seconds between live snapshots while the screen is on, 0 = off (default 5). Takes effect at once; a value set in WP admin overrides it. |
+| `min_checkin <s>` | Refuses check-in intervals shorter than this from the server (default 1 = off); a guard against a compromised site draining the power bank |
+| `status` | Shows the settings; the password and token only as *set* / *not set* |
+| `checkin` | Checks in with the website now; watch the log for the result |
+
+Settings are saved in NVS at once. **Reset after changing `wifi`, `token` or
+`server`**: the network starts at boot, and `status` says `network: not
+started` until then. A typical first setup:
+
+```
+bms> wifi froidcoeur <password>
+bms> token <64 hex characters>
+(reset, touch a pad within 10 s)
+bms> status          network: running
+bms> checkin         log: check-in ok, none, next in 900 s
+```
+
+If the Wi-Fi fails, the log names the reason (`reason 201, network not
+found`, `refused: wrong password?`, ...). The full bench checklist is
+[bring-up-remote.md](docs/bring-up-remote.md).
 
 ### Display driver
 

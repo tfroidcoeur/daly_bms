@@ -73,6 +73,9 @@ void settings_load(settings_t *s)
     if (h == 0 || nvs_get_u32(h, "min_checkin", &s->min_checkin_s) != ESP_OK) {
         s->min_checkin_s = 1;
     }
+    if (h == 0 || nvs_get_u32(h, "live", &s->live_s) != ESP_OK || s->live_s > 3600u) {
+        s->live_s = CONFIG_BMS_LIVE_S;
+    }
     if (h) {
         nvs_close(h);
     }
@@ -146,6 +149,15 @@ bool settings_set_min_checkin(settings_t *s, uint32_t seconds)
         return false;
     }
     s->min_checkin_s = seconds;
+    return true;
+}
+
+bool settings_set_live(settings_t *s, uint32_t seconds)
+{
+    if (seconds > 3600u || !store("live", NULL, &seconds)) {
+        return false;
+    }
+    s->live_s = seconds;
     return true;
 }
 

@@ -25,6 +25,7 @@ Scenarios:
     weak-cell   pack 2 has one cell drifting low, spread widens over time
     offline     pack 3 stops answering after 15 s, returns after another 20 s
     charging    the bank is on charge, SoC rising
+    idle        the bank at rest: a few tenths of an amp, Daly state "idle"
     alarm       pack 1 raises a level-1 cell voltage high flag - a BMS warning
     faults      several at once: a pack voltage mismatch, a BMS fault flag, a
                 badly drifted cell, an over-temperature pack and a low SoC -
@@ -35,7 +36,8 @@ Scenarios:
                 over its full range
     sleepy      packs fall asleep after 30 s with no request, as Daly's BMS does,
                 and wake after a few requests go unanswered (--sleep-after,
-                --wake-requests). Pack 3 is the slowest to wake
+                --wake-requests). Pack 3 is the slowest to wake. The bank is
+                at rest, as it is when packs get to sleep
 
 Dashboard poller, to see what a dashboard that is not ours would get back:
     --dashboard-every S   send a 0x90 request to --dashboard-addr every S
@@ -105,6 +107,7 @@ class Pack:
         self.temp_offset_c = 0
         self.peak_a = 0             # > 0 selects the winch duty cycle
         self.charging = False
+        self.idle = False           # at rest: no current to speak of
         self.base_cell_mv = 3320 + addr
         self.t0 = time.monotonic()
         # Daly's own power saving; see --sleep-after. Only the sleepy scenario
@@ -149,6 +152,10 @@ class Pack:
             # Each pack takes a slightly different share of the load.
             return int(amps * 1000 * (0.94 + 0.03 * self.addr))
 
+        if self.idle:
+            # Below Daly's own threshold, so the BMS says "idle".
+            return int(150 * math.sin(t / 7 + self.addr))
+
         base = 12000 if self.charging else -14000
         # Each pack carries a slightly different share of the bank current.
         return int(base * (0.9 + 0.1 * self.addr) + 900 * math.sin(t / 11))
@@ -159,7 +166,7 @@ class Pack:
                 for i in range(TEMPS)]
 
     def tick(self, dt):
-        rate = 0.02 if self.charging else -0.015
+        rate = 0.0 if self.idle else (0.02 if self.charging else -0.015)
         self.soc = max(3.0, min(100.0, self.soc + rate * dt))
         self.life = (self.life + 1) & 0xFF
 
@@ -209,13 +216,13 @@ class Pack:
                            0, 0, 0, 0])]
 
         if cmd == CMD_MOS:
-            state = 1 if self.charging else 2
+            state = 0 if self.idle else (1 if self.charging else 2)
             remaining = int(280000 * self.soc / 100)   # 280 Ah pack
             return [bytes([state, 1, 1, self.life]) + struct.pack(">I", remaining)]
 
         if cmd == CMD_STATUS:
             return [bytes([CELLS, TEMPS, 1 if self.charging else 0,
-                           0 if self.charging else 1, 0]) +
+                           0 if self.charging or self.idle else 1, 0]) +
                     u16(self.cycles) + b"\x00"]
 
         if cmd == CMD_CELL_VOLTS:
@@ -255,6 +262,7 @@ def apply_scenario(name, packs):
     for p in packs:
         p.charging = name == "charging"
         p.sleep_enabled = name == "sleepy"
+        p.idle = name in ("idle", "sleepy")
     if name == "weak-cell":
         packs[1].weak_cell = (6, 120)      # pack 2, cell 7, drifting 120 mV low
     elif name == "alarm":
@@ -270,7 +278,7 @@ def apply_scenario(name, packs):
     elif name == "winch":
         for p in packs:
             p.peak_a = 200          # 3 packs -> about 600 A at the bank
-    elif name not in ("normal", "offline", "charging", "sleepy"):
+    elif name not in ("normal", "offline", "charging", "sleepy", "idle"):
         sys.exit(f"unknown scenario: {name}")
 
 
