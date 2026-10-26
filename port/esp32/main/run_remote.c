@@ -53,7 +53,7 @@ static const char *TAG = "remote";
 
 #define UI_UPDATE_MS      500
 #define WIFI_TIMEOUT_MS   10000
-#define CONSOLE_GATE_MS   10000         /* touch within this after reset */
+#define CONSOLE_GATE_MS   10000         /* press within this after reset */
 #define NET_TASK_STACK    (12 * 1024)   /* TLS + the cert bundle; see the log */
 #define NET_TASK_PRIO     1
 /* A live screen's first snapshot waits for every pack's data, or this long
@@ -306,7 +306,7 @@ void run_remote(void)
         xTaskCreatePinnedToCore(net_task, "net", NET_TASK_STACK, NULL,
                                 NET_TASK_PRIO, NULL, 0);
     } else {
-        ESP_LOGW(TAG, "no Wi-Fi or token set: display only (console: touch a pad within 10 s of a reset)");
+        ESP_LOGW(TAG, "no Wi-Fi or token set: display only (console: press the button within 10 s of a reset)");
     }
 
     /* Listen to the bus from the start: a dashboard request must wake the
@@ -347,8 +347,7 @@ void run_remote(void)
         bool long_press;
         if (board_key_poll(&long_press)) {
             const bool screen_was_live = pwr.state == PWR_LOCAL;
-            /* A touch soon after power-on or reset opens the console - after
-             * the pads have calibrated without a finger on them. */
+            /* A press soon after power-on or reset opens the console. */
             if (console_gate && now < CONSOLE_GATE_MS && !console_is_open()) {
                 console_start(&g_settings);
             }
@@ -358,7 +357,7 @@ void run_remote(void)
                 last_wake = REMOTE_WAKE_TOUCH;
             }
             pwr_on_touch(&pwr, now);
-            /* The first touch only wakes the screen; it does not turn a page
+            /* The first press only wakes the screen; it does not turn a page
              * nobody could see. */
             if (screen_was_live) {
                 input_pending = true;

@@ -75,9 +75,9 @@ and sets pixels one at a time through `st7305_set_pixel()`.
 Two events, `ui_input(UI_KEY_SHORT)` and `ui_input(UI_KEY_LONG)`: next page,
 and open/close the cell detail. Any buttons, pads or encoder will do.
 
-*Example:* `board_key_poll()` in `port/esp32/main/board.c` debounces two
-capacitive pads read by the S3 touch peripheral, plus the onboard KEY button
-(short press / 800 ms hold).
+*Example:* `board_key_poll()` in `port/esp32/main/board.c` debounces an
+external push button on GPIO1 and the onboard KEY button (short press / 800 ms
+hold).
 
 ## 5. Tasks and a lock (on an RTOS)
 

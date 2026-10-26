@@ -112,27 +112,13 @@ and a hold over 800 ms should open the cell detail for the current pack. Every
 pack will read `NO DATA` - nothing is on the bus yet. That is the correct
 display, and it confirms the whole chain: input, LVGL lock, page switch, repaint.
 
-The two capacitive pads do the same two things, one each, and need no hold. If
-they do nothing - or fire when nobody touches them - build the **touch monitor**
-mode (menuconfig -> Daly BMS monitor -> Build mode) rather than guessing. It
-prints each pad's benchmark, its delta, and the press and release edges the delta
-is judged against, which separates a pad that is not wired from a threshold set
-wrong in either direction. A benchmark pinned at 4194303 means the channel is not
-being sampled at all.
-
-Each pad has its own threshold (`BOARD_TOUCH_NEXT_PERMILLE`,
-`BOARD_TOUCH_DRILL_PERMILLE` in `board.h`), because two pads of copper tape can
-differ many times over in how hard a touch lands. Touch each one, then hover a
-hand near it without touching: the press edge wants to sit well above the hover
-and well below the touch. The defaults are measured
-**through the PLA enclosure wall**; bare copper gives far larger deltas, so
-re-measure if the wall changes. With nobody near, the delta should sit within a
-few tens of zero and the benchmark should move now and then; a delta parked
-hundreds above zero means the benchmark has stopped tracking.
+The external button on GPIO1 (P1 pin 7 to GND) does exactly the same, and
+works whether or not KEY is still read.
 
 If a KEY press does nothing, the press is being dropped rather than misread: the
 latch in `main.c` retries every pass until the LVGL lock is free, so a dead
-button means GPIO18 is not reading, not that the UI is stuck.
+button means its GPIO (18 for KEY, 1 for the external one) is not reading, not
+that the UI is stuck.
 
 ## 7. Now add CAN
 
@@ -145,7 +131,7 @@ Wire the SN65HVD230 to the 2x8 header (P1):
 | **13** | **GPIO17** | **D / CTX** (driver input - the pin we drive) |
 | **11** | **GPIO3** | **R / CRX** (receiver output - the pin we read) |
 
-Pins 7 and 9 are the touch pads, not CAN. And `D` is an input while `R` is an
+Pin 7 is the button, not CAN. And `D` is an input while `R` is an
 output: swap them and two push-pull drivers meet on one net, which is how the
 first transceiver died during bring-up.
 

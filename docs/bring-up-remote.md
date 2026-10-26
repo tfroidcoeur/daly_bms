@@ -48,12 +48,12 @@ laptop's ground is tied to pack negative (see
    - Transceiver pin 8 to GND: no beep (the lifted end is clear).
    - CANH to CANL: ~120 Ω, unchanged.
 
-   With the wire fitted, the firmware no longer reads KEY - only the pads.
+   With the wire fitted, the firmware no longer reads KEY - only the external button.
    **Don't press KEY while the board is asleep:** GPIO18 is then driven high
    and the button shorts it to GND. Pressing it while awake (GPIO18 low) does
    nothing.
 
-   Other header wires (CAN on GP17/GP3, the pads on GP1/GP2) that sit loosely
+   Other header wires (CAN on GP17/GP3, the button on GP1) that sit loosely
    in the female header: solder them to a piece of male header strip on the
    bench first and push that in, or glue the Dupont plugs in place. A CAN wire
    that drops out looks like a pack going offline.
@@ -73,9 +73,9 @@ The partition table changes to the 1.5 MB single-app layout (Wi-Fi and TLS
 need the room); NVS stays where it was.
 
 **Open the console:** press reset (or plug in), wait for the boot log, then
-touch a pad within 10 seconds of the reset - the log says `console open for
-300 s`. (Not held through the reset: the pads calibrate at boot and would take
-the finger for the baseline.) Then:
+press the button within 10 seconds of the reset - the log says `console open
+for 300 s`. (A press held through the reset does not count: its release is
+taken as the wake.) Then:
 
 ```
 bms> wifi <ssid> <password>
@@ -105,10 +105,10 @@ after a real HTTPS check-in, say so.
 | 1 | `checkin` on the console | log `check-in ok, none, next in 900 s`; WP admin shows the check-in time, firmware 2.0.0 |
 | 2 | Press Refresh on the page (signed in) | within one interval: log `check-in ok, report`, the bus comes alive, `upload: 204`; the page shows the snapshot with a fresh time |
 | 3 | Leave it alone 5 min | "Zzz" on the screen, log `deep sleep`, no CAN requests (`candump can0` on the bench adapter stays silent) |
-| 4 | Touch a pad | live screen within a second or two; the first touch does not change page |
+| 4 | Press the button | live screen within a second or two; the first press does not change page |
 | 5 | Let a dashboard poll address 0x10 (or `cansend can0 18901040#0000000000000000` a few times) | the board wakes, screen live, the virtual BMS answers after the first full poll round |
 | 6 | Does "Zzz" stay on the glass through deep sleep? | yes - if the screen goes blank or grey instead, report it: the panel pins' hold needs another look |
-| 6a | Touch a pad with the page open | the page shows **Live** and updates every ~5 s; the screen's top right shows filled signal bars. Walk out of Wi-Fi range: hollow bars, the screen keeps working, back in range the page goes live again |
+| 6a | Press the button with the page open | the page shows **Live** and updates every ~5 s; the screen's top right shows filled signal bars. Walk out of Wi-Fi range: hollow bars, the screen keeps working, back in range the page goes live again |
 | 6b | With current flowing (winch, charger) | the screen does not go to "Zzz" after 5 min; at rest it does |
 | 7 | **CAN wake of sleeping packs** (the one real unknown) | leave the bank idle > 1 h with the board asleep, check in the Daly app that the packs sleep, then Refresh: the packs must answer within the 60 s collection window and the snapshot show 3/3 online |
 

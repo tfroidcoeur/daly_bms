@@ -38,7 +38,7 @@ idf_component_register(
         "${REPO_ROOT}/ui/fonts"
     REQUIRES
         driver esp_driver_gpio esp_driver_spi esp_driver_twai esp_lcd esp_timer
-        esp_driver_touch_sens esp_wifi esp_netif esp_event nvs_flash
+        esp_wifi esp_netif esp_event nvs_flash
         esp_http_client mbedtls console
 )
 

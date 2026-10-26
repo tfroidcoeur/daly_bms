@@ -37,20 +37,6 @@ config BMS_CAN_LOOP_TEST
       TWAI: the controller cannot read back its own bits, and reports a flood
       of bus errors whichever of them is to blame. This says which.
 
-config BMS_TOUCH_MONITOR
-    bool "Capacitive touch monitor"
-    help
-      Prints each touch pad's benchmark, its delta above it, and the press and
-      release edges that delta is judged against, several times a second, and
-      does nothing else.
-
-      Touch each pad, then hover near it without touching, and watch the
-      delta. A delta that never moves means the pad or its wiring, not the
-      threshold. A touch that never reaches "press" means that pad's
-      BOARD_TOUCH_*_PERMILLE is too high for its size and overlay; a hover that
-      does reach it means too low. Aim for the press edge well above the
-      hover and well below the touch.
-
 endchoice
 
 config BMS_VIRTUAL_ADDR
@@ -116,7 +102,7 @@ config BMS_WIFI_PASSWORD
     depends on BMS_REMOTE
 
 config BMS_LOCAL_TIMEOUT_S
-    int "Seconds of live screen after the last touch or dashboard request"
+    int "Seconds of live screen after the last button press or dashboard request"
     default 300
     range 10 3600
     depends on BMS_REMOTE
@@ -127,7 +113,7 @@ config BMS_LIVE_S
     range 0 3600
     depends on BMS_REMOTE
     help
-      While the screen is live (a touch or a dashboard keeps it awake), the
+      While the screen is live (a button press or a dashboard keeps it awake), the
       board posts a snapshot to the website this often. The console's
       `live <s>` overrides it, and a value set in WP admin overrides both.
 

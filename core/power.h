@@ -67,7 +67,7 @@ pwr_cfg_t pwr_default_cfg(void);
  */
 void pwr_init(pwr_t *p, pwr_cfg_t cfg, remote_wake_t wake, uint32_t now_ms);
 
-/* A touch pad was pressed. In IDLE or REPORT this switches to LOCAL. */
+/* The button was pressed. In IDLE or REPORT this switches to LOCAL. */
 void pwr_on_touch(pwr_t *p, uint32_t now_ms);
 
 /* A request for the virtual BMS was seen on the bus (answered or not). Same

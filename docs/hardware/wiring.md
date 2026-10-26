@@ -6,8 +6,8 @@ units.
 ## In short
 
 - **Transceiver on the 2x8 expansion header P1:** 3V3 to pin 1, GND to pin 3,
-  CAN TX to pin 13 (GPIO17), CAN RX to pin 11 (GPIO3). Pins 7 and 9 are the
-  touch pads.
+  CAN TX to pin 13 (GPIO17), CAN RX to pin 11 (GPIO3). The front button goes
+  between pin 7 (GPIO1) and GND (pin 4).
 - **Bus:** CANH/CANL as a twisted pair to the three Daly units, with a ground
   wire alongside. 250 kbit/s, 29-bit extended frames.
 - **Termination:** exactly two 120 ohm terminators, at the two physical ends.
@@ -51,11 +51,10 @@ header is power, USB, UART0, I2C, or an already-committed pin.
 
 ![P1 header](img/p1-header.png)
 
-Touch gets first pick and CAN takes what is left. The constraint only runs one
-way: the touch channels are wired to GPIO1..GPIO14 in silicon, while TWAI routes
-through the GPIO matrix and works on any pin. With the display behind a sealed
-front, two capacitive pads replace the onboard KEY button, and that claims both
-low-numbered pins.
+TWAI routes through the GPIO matrix and works on any pin. The front button
+needs a pin that can wake the chip from deep sleep (an RTC GPIO) and is not a
+strap, so it takes GPIO1. Capacitive pads behind the enclosure wall were tried
+first and dropped as too unreliable in the winch.
 
 | Signal | P1 pin | GPIO |
 |---|---|---|
@@ -63,10 +62,12 @@ low-numbered pins.
 | CAN RX <- transceiver `R` / `CRX` | **11** | **GPIO3** |
 | 3V3 -> transceiver `Vcc` | **1** | - |
 | GND -> transceiver `GND` | **3** | - |
-| touch pad: next page | **7** | **GPIO1** |
-| touch pad: cell detail | **9** | **GPIO2** |
+| button (other leg to GND, pin 4) | **7** | **GPIO1** |
 
-That uses all four usable header pins, with nothing spare.
+The button is a plain normally-open push button to GND; the internal pull-up
+does the rest, awake and asleep. A short press turns the page, a hold over
+800 ms opens the cell detail, and a press wakes the board. GPIO2 (pin 9) is
+spare.
 
 GPIO3 is nominally the JTAG source-select strap, but that function only exists
 once the `JTAG_SEL_ENABLE` eFuse is burned, which it is not from the factory. It

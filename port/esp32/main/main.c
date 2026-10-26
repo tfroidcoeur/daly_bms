@@ -271,28 +271,6 @@ void app_main(void)
 {
     board_key_init();
 
-#ifdef CONFIG_BMS_TOUCH_MONITOR
-    /*
-     * Nothing but the pads. board_key_init() has already brought the touch
-     * controller up and logged the benchmarks; this just keeps reporting so a
-     * finger's effect is visible rather than inferred. Presses go through the
-     * same board_key_poll() the UI uses, so what is logged as accepted is what
-     * the UI would see.
-     */
-    ESP_LOGI(TAG, "touch monitor - touch a pad and watch the delta");
-    for (unsigned tick = 0;; tick++) {
-        bool long_press;
-        if (board_key_poll(&long_press)) {
-            ESP_LOGI(TAG, ">> press accepted: %s", long_press ? "drill" : "next");
-        }
-        if (tick % 20 == 0) {
-            ESP_LOGI(TAG, "--------");
-            board_touch_report();
-        }
-        vTaskDelay(pdMS_TO_TICKS(20));
-    }
-#endif
-
 #ifdef CONFIG_BMS_CAN_LOOP_TEST
     can_loop_test();   /* never returns */
     return;

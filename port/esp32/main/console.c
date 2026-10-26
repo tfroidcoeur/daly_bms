@@ -37,7 +37,7 @@ bool console_take_checkin_request(void)
 static bool closed(void)
 {
     if (!console_is_open()) {
-        printf("console closed - reset, then touch a pad within 10 s to reopen it\n");
+        printf("console closed - reset, then press the button within 10 s to reopen it\n");
         return true;
     }
     return false;

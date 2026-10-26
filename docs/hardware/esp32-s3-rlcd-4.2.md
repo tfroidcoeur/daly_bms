@@ -32,7 +32,7 @@ Sold on Amazon under the reseller brand **UeeKKoo**, ASIN `B0GLPHR1ZX`.
 | Colour | Monochrome, 1 bit per pixel |
 | Controller | **ST7305 / ST7306** (Sitronix), 4-wire SPI, write-only |
 | Interface | SPI up to ~10 MHz (`mipi-max-frequency = 10000000` in the Zephyr dts) |
-| Touch | **None** - the pads this project uses are copper tape on GPIO1/GPIO2, not part of the panel |
+| Touch | **None** - the project uses one external push button on GPIO1 |
 
 Panel window geometry, from the Zephyr devicetree: `width = 312`, `height = 400`,
 `start-column = 204`, `inversion-on`. The visible area is 300 x 400 portrait; the
@@ -113,16 +113,15 @@ pinch - it is the JTAG source-select strap, but that function only exists once
 the `JTAG_SEL_ENABLE` eFuse is burned, which it is not from the factory. GPIO0 is
 the BOOT strap and GPIO18 already drives the KEY button.
 
-All four are now in use: GPIO1 and GPIO2 are capacitive touch pads (the touch
-channels are tied to GPIO1..GPIO14 in silicon, so they cannot go anywhere else),
-and CAN takes GPIO17 and GPIO3, TWAI being free to route anywhere through the
-GPIO matrix.
+Three are in use: GPIO1 is the external push button (an RTC GPIO, so it can
+wake the chip from deep sleep), and CAN takes GPIO17 and GPIO3, TWAI being free
+to route anywhere through the GPIO matrix. GPIO2 is spare.
 
 The other unused GPIOs on the SoC (6, 7, 42, 47, 48) are **not brought out** - they
 terminate at the module and are unreachable without soldering to the module itself.
 
 This board therefore has exactly four usable expansion pins, and the project
-uses all four: two for CAN and two for touch. Nothing is spare.
+uses three: two for CAN and one for the button.
 
 ## Development frameworks
 

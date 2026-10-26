@@ -17,8 +17,7 @@ The code is developed and tested on one concrete setup, used as the example
 throughout the docs: three **24S LiFePO4 packs, each with a Daly smart BMS**
 (addresses 0x01-0x03), wired in parallel. The display is a
 **Waveshare ESP32-S3-RLCD-4.2** (ESP32-S3, 4.2" 400 x 300 reflective monochrome
-LCD) in a 3D-printed PLA enclosure, with two copper-tape touch pads behind the
-front panel. It talks to the packs through an **SN65HVD230** transceiver on the
+LCD) in a 3D-printed PLA enclosure, with one push button on the front. It talks to the packs through an **SN65HVD230** transceiver on the
 S3's built-in TWAI controller, at 250 kbit/s. On the bench, an
 **IXXAT USB-to-CAN V2** connects the laptop to the same bus. Specs, GPIO map and
 wiring are in [`docs/hardware/`](docs/hardware/); the short version is in
@@ -47,8 +46,8 @@ with two alarms, and the cells of a drifted pack.*
   (60.0-87.6 V, also the voltage column's range, `UI_VBAR_CELLS` in `ui/ui.h`).
 
 **Controls:** two inputs, one cycling pages and one opening the cell detail. On
-the reference board these are the touch pads, or the onboard KEY button with a
-short press and an 800 ms hold.
+the reference board that is one push button on GPIO1 (or the onboard KEY):
+a short press and an 800 ms hold.
 
 ## Virtual BMS
 
@@ -80,7 +79,7 @@ silent. Current uses the real packs' sign convention. Rules are in
 The display can report the bank to the club website and otherwise keep the
 bus quiet, so the packs reach their own sleep (they stay awake as long as
 anything polls them). It deep-sleeps with "Zzz" on the screen, wakes on a
-touch, on a dashboard request to the virtual BMS, or on a timer to check in
+button press, on a dashboard request to the virtual BMS, or on a timer to check in
 with the website, and uploads a snapshot when the site asks for one. While
 the screen is on it also posts a live snapshot every few seconds (5 s by
 default), and the website page updates itself; the screen stays on for as
@@ -98,7 +97,7 @@ core/        portable C99: Daly decoding, data model, poll scheduler, warnings,
              virtual BMS. No platform headers, no I/O, no threads.
 ui/          LVGL 9 screens, shared by simulator and firmware
 port/sim/    host: SocketCAN + SDL
-port/esp32/  reference port: ESP-IDF app - TWAI, ST7305 panel, touch pads
+port/esp32/  reference port: ESP-IDF app - TWAI, ST7305 panel, button
 tools/       daly_sim.py (fake three-BMS bus), vcan and adapter setup
 tests/       host unit tests over core/
 docs/        core design, porting guide, fonts, reference hardware
@@ -114,13 +113,13 @@ docs/        core design, porting guide, fonts, reference hardware
 | [hardware/](docs/hardware/) | The reference hardware: board, transceiver, wiring |
 | [daly-can-protocol.md](docs/hardware/daly-can-protocol.md) | Daly CAN frames, and what real packs were seen to send |
 | [bring-up-usb-can.md](docs/hardware/bring-up-usb-can.md) | First contact with the packs from a laptop |
-| [bring-up-board.md](docs/hardware/bring-up-board.md) | First flash of the board, touch pads, CAN |
+| [bring-up-board.md](docs/hardware/bring-up-board.md) | First flash of the board, buttons, CAN |
 | [remote-protocol.md](docs/remote-protocol.md) | Device ↔ website protocol, snapshot format, rules on both sides |
 | [bring-up-remote.md](docs/bring-up-remote.md) | First flash of remote reporting: console, checks, the CAN-wake unknown |
 
 ## Building and running on the laptop
 
-Everything except the board drivers (panel, touch, CAN controller) runs on the
+Everything except the board drivers (panel, button, CAN controller) runs on the
 host against a virtual CAN bus.
 
 ```bash
@@ -221,8 +220,7 @@ error counters. Both, and the full bench procedure, are in
 
 This section is specific to the ESP32-S3-RLCD-4.2; for other hardware see
 [docs/porting.md](docs/porting.md). It needs ESP-IDF **5.5** (built and
-tested on 5.5.5): 6.x replaced the `driver/twai.h` API this uses, and the touch
-pads use the `esp_driver_touch_sens` driver.
+tested on 5.5.5): 6.x replaced the `driver/twai.h` API this uses.
 
 ```bash
 sudo apt install -y flex bison
@@ -285,10 +283,10 @@ hold `/dev/ttyACM0`.
 With remote reporting on, the board's settings are set over the same USB
 serial line, in `idf.py monitor` or any serial terminal on `/dev/ttyACM0`.
 
-**Opening it:** reset the board, wait for the boot log, then **touch a pad
-within 10 seconds** - the log says `console open for 300 s - type help` and
-the `bms>` prompt appears. Don't hold the pad through the reset: the pads
-calibrate at boot and would take the finger for the baseline. The console
+**Opening it:** reset the board, wait for the boot log, then **press the
+button within 10 seconds** - the log says `console open for 300 s - type help`
+and the `bms>` prompt appears. A press held through the reset does not count:
+its release is taken as the wake. The console
 closes after 5 minutes; while it is open the board does not deep-sleep.
 
 | Command | What it does |
@@ -309,7 +307,7 @@ started` until then. A typical first setup:
 ```
 bms> wifi froidcoeur <password>
 bms> token <64 hex characters>
-(reset, touch a pad within 10 s)
+(reset, press the button within 10 s)
 bms> status          network: running
 bms> checkin         log: check-in ok, none, next in 900 s
 ```

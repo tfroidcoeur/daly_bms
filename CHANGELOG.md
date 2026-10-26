@@ -3,6 +3,18 @@
 All notable changes to this project. Versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- The two capacitive touch pads are gone: too unreliable behind the enclosure
+  wall in the winch. One mechanical push button between GPIO1 (P1 pin 7) and
+  GND replaces them and works like the KEY: a short press turns the page, a
+  hold over 800 ms opens the cell detail, and a press wakes the board from
+  deep sleep (ext1, together with CAN RX) and opens the console within 10 s
+  of a reset. The press that wakes the board does not also turn a page.
+- The touch-monitor build mode is removed.
+
 ## [2.0.0] - 2026-10-18
 
 Remote reporting to the club website, and a display that is no longer always

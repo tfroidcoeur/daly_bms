@@ -35,14 +35,10 @@
 #define BOARD_VBAT_GPIO GPIO_NUM_4
 
 /*
- * --- CAN and touch ----------------------------------------------------------
+ * --- CAN and the external button --------------------------------------------
  *
  * The 2 x 8 expansion header (P1) brings out GPIO0, 1, 2, 3, 17 and 18. GPIO0
  * is the BOOT strap and GPIO18 drives the KEY button, leaving 1, 2, 3 and 17.
- *
- * Touch gets first pick and CAN takes what is left, because the constraint runs
- * one way: the touch channels are wired to GPIO1..GPIO14 in silicon, while TWAI
- * routes through the GPIO matrix and will work on any pin.
  *
  * GPIO3 is nominally the JTAG-select strap, but that function only exists once
  * the JTAG_SEL_ENABLE eFuse is burned, which it is not from the factory. It is
@@ -53,84 +49,14 @@
 #define BOARD_CAN_RX GPIO_NUM_3  /* P1 pin 11 <- transceiver R */
 
 /*
- * Two capacitive pads, read by the SoC's own touch peripheral - a copper area
- * behind the front panel, no controller IC. Pad numbers match the GPIO on this
- * part (TOUCH_PAD_NUMn is GPIOn for n = 1..14).
- *
- * Two pads rather than one means the cell page gets its own control instead of
- * an 800 ms hold on a single button: a hold gives no feedback while you wait,
- * and this panel redraws too slowly to show any.
+ * One mechanical push button on the front, between this pin and GND. It works
+ * like the KEY: a short press turns the page, a hold opens cell detail, and a
+ * press wakes the board from deep sleep. GPIO1 because it is on the header and
+ * an RTC GPIO (ext1 wake-up), and is not a strap pin - a button held or wet at
+ * power-up cannot stop the board from booting, as it could on GPIO0. GPIO2
+ * (P1 pin 9) is free.
  */
-#define BOARD_TOUCH_NEXT_CHAN 1  /* P1 pin 7  - next page   */
-#define BOARD_TOUCH_DRILL_CHAN 2 /* P1 pin 9  - cell detail */
-
-/*
- * Activation thresholds, one per pad, in per mille of that pad's own benchmark:
- * a pad goes active when (smooth - benchmark) exceeds benchmark * PERMILLE /
- * 1000. Relative rather than absolute because the benchmark depends on pad size
- * and overlay thickness, and drifts with temperature and humidity - the driver
- * tracks that drift for us. Per mille, not percent: behind a wall a press is
- * only a few percent, and 1 % steps are too coarse to place the edge.
- *
- * Higher = less sensitive. board_key_init() logs each pad's benchmark at boot,
- * and the touch-monitor build mode prints the live delta against both edges, so
- * these are set from measurement rather than taste.
- *
- * Measured through the PLA enclosure wall, 2026-10-02, benchmark ~31900 on both,
- * benchmark tracking as set up in touch_init():
- *
- *            idle   hover ~1 cm   slow approach   press / 8 s hold   other pad
- *   next     0-5      230-475         1132           1250-1335          <=5
- *   drill    0-5      350-540         1290           1340-1590          <=11
- *
- * The wall flattens the two pads to nearly the same signal - on bare copper they
- * differed 36-fold. 30 per mille puts `next` at ~955: a press clears it
- * 1.3-1.4x, a hover sits at half. `drill` at 25 per mille (~795) has a press
- * 1.7-2x over and a hover 0.7x under. A held press does not decay. Wider margins
- * are a mechanical job - a thinner wall over the pad, the copper flat against
- * it - not a firmware one.
- */
-#define BOARD_TOUCH_NEXT_PERMILLE 30
-#define BOARD_TOUCH_DRILL_PERMILLE 25
-
-/*
- * Hysteresis: once active, a pad stays active until its delta falls below this
- * percentage of its activation threshold. Without it a finger that settles near
- * the threshold - arriving, leaving, or resting lightly - crosses it several
- * times and reads as several presses.
- */
-#define BOARD_TOUCH_RELEASE_PCT 40
-
-/*
- * Freeze edge, as a percentage of the activation threshold: the delta above
- * which the hardware stops tracking a pad's benchmark. It has to sit near the
- * noise, not near a press. The controller scans continuously and the benchmark
- * IIR follows within a few scans, so anything below this edge is calibrated
- * away almost as it happens - set at the release edge, it swallowed ~500 of a
- * ~1300 press and the whole of a slow approach. Idle noise is under 10, so 5 %
- * (~45) freezes the benchmark once a finger is a few cm off while still letting
- * it follow temperature drift, which is far slower.
- */
-#define BOARD_TOUCH_FREEZE_PCT 5
-
-/*
- * Debounce: a pad must read above its threshold continuously for this long
- * before it counts. Rejects a brush, a sleeve, a spike on the lead wire. Well
- * under what a deliberate press takes, and the panel redraws far slower than
- * this anyway, so it cannot be felt.
- */
-#define BOARD_TOUCH_DEBOUNCE_MS 60
-
-/*
- * A pad whose delta stays above the freeze edge for longer than this is not
- * being pressed - nobody holds a button for 15 s - but has something resting on
- * it: water on the wall, a cable against the pad, a reading still settling after
- * boot. The hardware does not track the benchmark while the delta is above the
- * freeze edge, so left alone it never recovers: above the press edge the pad is
- * dead after one phantom press, and below it the pad sits that much less
- * sensitive. Past this, the benchmark is reset to the present reading.
- */
-#define BOARD_TOUCH_STUCK_MS 15000
+#define BOARD_BTN_GPIO GPIO_NUM_1 /* P1 pin 7, active low, internal pull-up */
 
 /* Initialise SPI, the ST7305 panel, and LVGL. Returns the LVGL display. */
 lv_display_t *board_display_init(void);
@@ -153,18 +79,12 @@ bool board_lvgl_start(void);
 bool board_lvgl_lock(int timeout_ms);
 void board_lvgl_unlock(void);
 
-/* Configure the KEY button. Poll it with board_key_poll(). */
+/* Configure the external button and, when it is not the Rs line, the KEY.
+ * Poll them with board_key_poll(). */
 void board_key_init(void);
 
 /*
- * Log both touch pads' benchmark, smoothed reading and the margin to the
- * threshold. For the touch-monitor build mode: touch a pad and watch whether
- * the numbers move at all, which separates a dead pad from a wrong threshold.
- */
-void board_touch_report(void);
-
-/*
- * Debounced button poll with press-length classification.
+ * Debounced button poll with press-length classification, for both buttons.
  * Returns true once per release, with `long_press` set for holds over 800 ms.
  */
 bool board_key_poll(bool *long_press);
@@ -183,7 +103,7 @@ remote_wake_t board_wake_cause(void);
 void board_can_standby(bool standby);
 
 /*
- * Deep sleep until `seconds` pass (UINT32_MAX: no timer), a pad is touched,
+ * Deep sleep until `seconds` pass (UINT32_MAX: no timer), the button is pressed,
  * or the CAN bus goes dominant. Puts the transceiver in standby and holds the
  * panel's pins so the "Zzz" on the glass survives. Does not return.
  */
