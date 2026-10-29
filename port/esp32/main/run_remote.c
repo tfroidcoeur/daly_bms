@@ -326,6 +326,9 @@ void run_remote(void)
     }
     vbms_t vbms;
     vbms_init(&vbms, VBMS_ENABLED);
+    /* The virtual BMS's latest frames, until the poller's next request. */
+    can_frame_out_t bcast[VBMS_MAX_FRAMES];
+    uint8_t n_bcast = 0;
 
     pwr_cfg_t cfg = pwr_default_cfg();
     cfg.local_timeout_ms = (uint32_t)CONFIG_BMS_LOCAL_TIMEOUT_S * 1000u;
@@ -452,21 +455,29 @@ void run_remote(void)
 
         if (out.poll_can != polling) {
             polling = out.poll_can;
+            n_bcast = 0;   /* nothing from before a restart goes out after it */
             if (!polling) {
                 bus_restart(&bus);
             }
         }
         if (polling) {
-            can_frame_out_t tx;
-            if (poller_tick(&bus.poller, now, &tx)) {
-                twai_link_send(tx.id, tx.ext, tx.data, tx.len);
-            }
             /* Only while polling: in IDLE the model has been cleared, and the
              * controller should time the battery out, not read stale data. */
-            can_frame_out_t bcast[VBMS_MAX_FRAMES];
-            const uint8_t nb = vbms_tick(&vbms, &bus.model, now, bcast);
-            for (uint8_t i = 0; i < nb; i++) {
-                twai_link_send(bcast[i].id, bcast[i].ext, bcast[i].data, bcast[i].len);
+            can_frame_out_t fresh[VBMS_MAX_FRAMES];
+            const uint8_t nb = vbms_tick(&vbms, &bus.model, now, fresh);
+            if (nb) {
+                memcpy(bcast, fresh, sizeof fresh);
+                n_bcast = nb;
+            }
+            can_frame_out_t tx;
+            if (poller_tick(&bus.poller, now, &tx)) {
+                /* Held for the next request, as in main.c: the last reply has
+                 * had its gap, so a separate bus can borrow the controller. */
+                if (n_bcast) {
+                    twai_link_send_victron(bcast, n_bcast);
+                    n_bcast = 0;
+                }
+                twai_link_send(tx.id, tx.ext, tx.data, tx.len);
             }
         }
 

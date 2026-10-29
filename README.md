@@ -55,8 +55,13 @@ The display also broadcasts **the whole bank as one battery** in Victron's
 CAN-bus BMS protocol, for the winch controller: `0x355` and `0x356`, 11-bit
 identifiers, little-endian, once a second while the display is polling the
 packs (`CONFIG_BMS_VICTRON`, on by default). Nothing is asked for: Victron is
-push-only. The frames share the packs' bus at 250 kbit/s; a Victron device set
-to its usual 500 kbit/s will not hear them.
+push-only. By default the frames share the packs' bus at 250 kbit/s, where a
+Victron device set to its usual 500 kbit/s will not hear them. With
+`CONFIG_BMS_VICTRON_SEPARATE_BUS` they go out on their own bus instead, through
+a second transceiver, at 500 kbit/s (or 250): the one CAN controller is lent to
+that bus for a few milliseconds a second, in the gap before a Daly request. The
+Daly protocol itself is fixed at 250 kbit/s, so the packs cannot move to 500.
+Wiring in [docs/hardware/wiring.md](docs/hardware/wiring.md#second-bus-for-the-victron-frames).
 
 | Frame   | Field                                | Combined as                       |
 |---------|--------------------------------------|-----------------------------------|

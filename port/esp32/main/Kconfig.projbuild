@@ -49,8 +49,54 @@ config BMS_VICTRON
       display is polling the packs. Voltage and SoC are averaged, current
       summed, the temperature is the warmest sensor. See core/virtual_bms.h.
 
-      The frames go out on the packs' bus at its 250 kbit/s. Victron devices
-      usually run at 500 kbit/s; a controller set to that will not hear them.
+      Without BMS_VICTRON_SEPARATE_BUS the frames go out on the packs' bus at
+      its 250 kbit/s, and a controller set to Victron's usual 500 kbit/s will
+      not hear them.
+
+config BMS_VICTRON_SEPARATE_BUS
+    bool "Send them on a second bus, through a second transceiver"
+    default n
+    depends on BMS_VICTRON
+    help
+      The S3 has one CAN controller. With this on, once a second, in the gap
+      before the next Daly request, it is moved onto a second SN65HVD230 at
+      the Victron bit rate, sends 0x355/0x356, and moves back - a few
+      milliseconds. The packs never see the frames; the controller never sees
+      the Daly traffic.
+
+      See docs/hardware/wiring.md for the second transceiver: a 10k pull-up
+      on its D, its Rs on the same line as the first one, and never GPIO43,
+      where the ROM prints its boot log.
+
+config BMS_VICTRON_TX_GPIO
+    int "Second bus TX GPIO (-> transceiver D)"
+    default 44
+    range 0 48
+    depends on BMS_VICTRON_SEPARATE_BUS
+    help
+      44 is U0RXD on P1 pin 12: an input at boot, so the bus stays quiet
+      while the chip starts.
+
+config BMS_VICTRON_RX_GPIO
+    int "Second bus RX GPIO (<- transceiver R)"
+    default 2
+    range 0 48
+    depends on BMS_VICTRON_SEPARATE_BUS
+    help
+      2 is P1 pin 9, the header's last spare pin.
+
+choice BMS_VICTRON_BITRATE
+    prompt "Second bus bit rate"
+    default BMS_VICTRON_BITRATE_500K
+    depends on BMS_VICTRON_SEPARATE_BUS
+
+config BMS_VICTRON_BITRATE_500K
+    bool "500 kbit/s (Victron's default)"
+
+config BMS_VICTRON_BITRATE_250K
+    bool "250 kbit/s"
+
+endchoice
 
 config BMS_INVERT_CURRENT
     bool "Daly reports discharge above the 30000 current bias"

@@ -17,6 +17,7 @@
  */
 #include <inttypes.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "board.h"
 #include "bms_model.h"
@@ -183,92 +184,105 @@ static bool externally_driven(int pin)
     return driven;
 }
 
+/* One pass over one transceiver: TX drives its D, RX reads its R. */
+static void loop_test_pair(const char *name, gpio_num_t tx, gpio_num_t rx)
+{
+    ESP_LOGI(TAG, "-------- %s", name);
+
+    const bool rx_driven = externally_driven(rx);
+
+    ESP_LOGI(TAG, "forward, TX GPIO%d -> RX GPIO%d:", tx, rx);
+    const bool forward_ok = loop_follows(tx, rx);
+    if (forward_ok) {
+        ESP_LOGI(TAG, "PASS: the loop is closed and the right way round.");
+        ESP_LOGI(TAG, "      Transceiver powered, Rs grounded, bus wired.");
+        ESP_LOGI(TAG, "      A silent bus now means the cable or the far node.");
+    } else if (!rx_driven) {
+        ESP_LOGE(TAG, "FAIL: GPIO%d floats - nothing is driving it.",
+                 rx);
+        ESP_LOGE(TAG, "      Check, in this order: 3V3 on the transceiver,");
+        ESP_LOGE(TAG, "      Rs tied to GND, then CRX/R reaching GPIO%d.",
+                 rx);
+    } else {
+        /*
+         * Driven but unmoving. Which level it is stuck at says which half
+         * of the transceiver is unhappy, and they need different fixes.
+         */
+        pin_in(rx, GPIO_PULLUP_DISABLE, GPIO_PULLDOWN_DISABLE);
+        const int stuck = gpio_get_level(rx);
+
+        ESP_LOGE(TAG, "FAIL: GPIO%d is stuck %s and does not follow GPIO%d.",
+                 rx, stuck ? "HIGH" : "LOW", tx);
+        if (stuck == 0) {
+            ESP_LOGE(TAG, "      Stuck low = the receiver sees the bus as");
+            ESP_LOGE(TAG, "      permanently DOMINANT. Something holds CANH");
+            ESP_LOGE(TAG, "      above CANL - most often CANL shorted to GND");
+            ESP_LOGE(TAG, "      (RJ45 pins 2 and 3 are adjacent), or CANH");
+            ESP_LOGE(TAG, "      shorted to 3V3. Measure CANL-to-GND: it");
+            ESP_LOGE(TAG, "      should be kilohms, not zero.");
+        } else {
+            ESP_LOGE(TAG, "      Stuck high = the receiver sees the bus as");
+            ESP_LOGE(TAG, "      permanently recessive, so the driver is not");
+            ESP_LOGE(TAG, "      reaching it: check Rs to GND, then that");
+            ESP_LOGE(TAG, "      CANH/CANL leave the transceiver at all.");
+        }
+    }
+
+    /*
+     * Whatever the forward direction did, if it failed, try it reversed.
+     * A swap makes our TX drive the transceiver's R output, so the RX pin
+     * reads as "driven" rather than floating - which means a swap can look
+     * like any of the failures above and has to be tested for explicitly.
+     *
+     * Safe only because we are here at all: the forward test has already
+     * failed, so the pins are not wired the way we expect.
+     */
+    if (!forward_ok) {
+        ESP_LOGI(TAG, "retrying reversed, in case CTX/CRX are swapped:");
+        if (loop_follows(rx, tx)) {
+            ESP_LOGE(TAG, "SWAPPED: the loop closes with the pins reversed.");
+            ESP_LOGE(TAG, "         Move CTX/D to GPIO%d and CRX/R to GPIO%d.",
+                     tx, rx);
+        } else {
+            ESP_LOGI(TAG, "  not a swap - reversed does not work either.");
+        }
+    }
+
+    /*
+     * Then hold each bus level long enough to meter. Resistance readings
+     * only prove a path exists inside your own cable; this puts a real
+     * differential on the wire, so it can be followed to any point in it -
+     * including the far plug, unplugged from the adapter.
+     */
+    ESP_LOGW(TAG, "holding DOMINANT for 6 s - expect CANH ~3.5 V, CANL ~1.5 V");
+    pin_out(tx);
+    gpio_set_level(tx, 0);
+    vTaskDelay(pdMS_TO_TICKS(6000));
+
+    ESP_LOGW(TAG, "holding RECESSIVE for 6 s - expect both ~2.5 V");
+    gpio_set_level(tx, 1);
+    vTaskDelay(pdMS_TO_TICKS(6000));
+
+    pin_in(tx, GPIO_PULLUP_DISABLE, GPIO_PULLDOWN_DISABLE);
+}
+
 static void can_loop_test(void)
 {
     ESP_LOGI(TAG, "CAN transceiver loop test - TWAI is not started at all.");
     ESP_LOGI(TAG, "Expecting GPIO%d -> transceiver CTX/D, GPIO%d <- CRX/R.",
              BOARD_CAN_TX, BOARD_CAN_RX);
+#ifdef CONFIG_BMS_VICTRON_SEPARATE_BUS
+    ESP_LOGI(TAG, "And on the Victron bus GPIO%d -> CTX/D, GPIO%d <- CRX/R.",
+             BOARD_VICTRON_TX, BOARD_VICTRON_RX);
+#endif
 
     while (true) {
-        ESP_LOGI(TAG, "--------");
-
-        const bool rx_driven = externally_driven(BOARD_CAN_RX);
-
-        ESP_LOGI(TAG, "forward, TX GPIO%d -> RX GPIO%d:",
-                 BOARD_CAN_TX, BOARD_CAN_RX);
-        const bool forward_ok = loop_follows(BOARD_CAN_TX, BOARD_CAN_RX);
-        if (forward_ok) {
-            ESP_LOGI(TAG, "PASS: the loop is closed and the right way round.");
-            ESP_LOGI(TAG, "      Transceiver powered, Rs grounded, bus wired.");
-            ESP_LOGI(TAG, "      A silent bus now means the cable or the far node.");
-        } else if (!rx_driven) {
-            ESP_LOGE(TAG, "FAIL: GPIO%d floats - nothing is driving it.",
-                     BOARD_CAN_RX);
-            ESP_LOGE(TAG, "      Check, in this order: 3V3 on the transceiver,");
-            ESP_LOGE(TAG, "      Rs tied to GND, then CRX/R reaching GPIO%d.",
-                     BOARD_CAN_RX);
-        } else {
-            /*
-             * Driven but unmoving. Which level it is stuck at says which half
-             * of the transceiver is unhappy, and they need different fixes.
-             */
-            pin_in(BOARD_CAN_RX, GPIO_PULLUP_DISABLE, GPIO_PULLDOWN_DISABLE);
-            const int stuck = gpio_get_level(BOARD_CAN_RX);
-
-            ESP_LOGE(TAG, "FAIL: GPIO%d is stuck %s and does not follow GPIO%d.",
-                     BOARD_CAN_RX, stuck ? "HIGH" : "LOW", BOARD_CAN_TX);
-            if (stuck == 0) {
-                ESP_LOGE(TAG, "      Stuck low = the receiver sees the bus as");
-                ESP_LOGE(TAG, "      permanently DOMINANT. Something holds CANH");
-                ESP_LOGE(TAG, "      above CANL - most often CANL shorted to GND");
-                ESP_LOGE(TAG, "      (RJ45 pins 2 and 3 are adjacent), or CANH");
-                ESP_LOGE(TAG, "      shorted to 3V3. Measure CANL-to-GND: it");
-                ESP_LOGE(TAG, "      should be kilohms, not zero.");
-            } else {
-                ESP_LOGE(TAG, "      Stuck high = the receiver sees the bus as");
-                ESP_LOGE(TAG, "      permanently recessive, so the driver is not");
-                ESP_LOGE(TAG, "      reaching it: check Rs to GND, then that");
-                ESP_LOGE(TAG, "      CANH/CANL leave the transceiver at all.");
-            }
-        }
-
-        /*
-         * Whatever the forward direction did, if it failed, try it reversed.
-         * A swap makes our TX drive the transceiver's R output, so the RX pin
-         * reads as "driven" rather than floating - which means a swap can look
-         * like any of the failures above and has to be tested for explicitly.
-         *
-         * Safe only because we are here at all: the forward test has already
-         * failed, so the pins are not wired the way we expect.
-         */
-        if (!forward_ok) {
-            ESP_LOGI(TAG, "retrying reversed, in case CTX/CRX are swapped:");
-            if (loop_follows(BOARD_CAN_RX, BOARD_CAN_TX)) {
-                ESP_LOGE(TAG, "SWAPPED: the loop closes with the pins reversed.");
-                ESP_LOGE(TAG, "         Move CTX/D to GPIO%d and CRX/R to GPIO%d.",
-                         BOARD_CAN_TX, BOARD_CAN_RX);
-            } else {
-                ESP_LOGI(TAG, "  not a swap - reversed does not work either.");
-            }
-        }
-
-        /*
-         * Then hold each bus level long enough to meter. Resistance readings
-         * only prove a path exists inside your own cable; this puts a real
-         * differential on the wire, so it can be followed to any point in it -
-         * including the far plug, unplugged from the adapter.
-         */
-        ESP_LOGW(TAG, "holding DOMINANT for 6 s - expect CANH ~3.5 V, CANL ~1.5 V");
-        pin_out(BOARD_CAN_TX);
-        gpio_set_level(BOARD_CAN_TX, 0);
-        vTaskDelay(pdMS_TO_TICKS(6000));
-
-        ESP_LOGW(TAG, "holding RECESSIVE for 6 s - expect both ~2.5 V");
-        gpio_set_level(BOARD_CAN_TX, 1);
-        vTaskDelay(pdMS_TO_TICKS(6000));
-
-        pin_in(BOARD_CAN_TX, GPIO_PULLUP_DISABLE, GPIO_PULLDOWN_DISABLE);
+        loop_test_pair("packs", BOARD_CAN_TX, BOARD_CAN_RX);
         vTaskDelay(pdMS_TO_TICKS(1000));
+#ifdef CONFIG_BMS_VICTRON_SEPARATE_BUS
+        loop_test_pair("victron", BOARD_VICTRON_TX, BOARD_VICTRON_RX);
+        vTaskDelay(pdMS_TO_TICKS(1000));
+#endif
     }
 }
 
@@ -329,6 +343,10 @@ void app_main(void)
     uint32_t last_ui = 0;
     uint32_t last_health = 0;
 
+    /* The virtual BMS's latest frames, until the poller's next request. */
+    can_frame_out_t bcast[VBMS_MAX_FRAMES];
+    uint8_t n_bcast = 0;
+
     /*
      * A key press is latched rather than applied immediately. Taking the LVGL
      * lock can fail while the LVGL task is mid-repaint, and a dropped press
@@ -341,21 +359,31 @@ void app_main(void)
     while (true) {
         const uint32_t now = now_ms();
 
-        can_frame_out_t tx;
-        if (poller_tick(&poller, now, &tx)) {
-            twai_link_send(tx.id, tx.ext, tx.data, tx.len);
-        }
-
-        can_frame_out_t bcast[VBMS_MAX_FRAMES];
-        const uint8_t nb = vbms_tick(&vbms, &model, now, bcast);
-        for (uint8_t i = 0; i < nb; i++) {
-            twai_link_send(bcast[i].id, bcast[i].ext, bcast[i].data, bcast[i].len);
-        }
-
+        /* Drained first: the Victron slot below may reinstall the driver,
+         * which empties its receive queue. */
         uint32_t id;
         uint8_t data[8], len;
         while (twai_link_recv(&id, data, &len)) {
             poller_on_frame(&poller, id, data, len, now);
+        }
+
+        can_frame_out_t fresh[VBMS_MAX_FRAMES];
+        const uint8_t nb = vbms_tick(&vbms, &model, now, fresh);
+        if (nb) {
+            memcpy(bcast, fresh, sizeof fresh);
+            n_bcast = nb;
+        }
+
+        can_frame_out_t tx;
+        if (poller_tick(&poller, now, &tx)) {
+            /* The broadcast waits for the next request: by then the last
+             * reply has had its whole gap, so a separate bus can borrow the
+             * controller without cutting one off. */
+            if (n_bcast) {
+                twai_link_send_victron(bcast, n_bcast);
+                n_bcast = 0;
+            }
+            twai_link_send(tx.id, tx.ext, tx.data, tx.len);
         }
 
         /*

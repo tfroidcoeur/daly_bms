@@ -117,11 +117,17 @@ Three are in use: GPIO1 is the external push button (an RTC GPIO, so it can
 wake the chip from deep sleep), and CAN takes GPIO17 and GPIO3, TWAI being free
 to route anywhere through the GPIO matrix. GPIO2 is spare.
 
+UART0 (GPIO43/44) is free too, because the console runs over USB-Serial-JTAG.
+The optional second CAN transceiver takes **GPIO44** (TX) and **GPIO2** (RX).
+**GPIO43 is not usable for anything that drives a bus or is driven:** the ROM
+prints its boot log on U0TXD at every reset, whatever the console setting.
+
 The other unused GPIOs on the SoC (6, 7, 42, 47, 48) are **not brought out** - they
 terminate at the module and are unreachable without soldering to the module itself.
 
-This board therefore has exactly four usable expansion pins, and the project
-uses three: two for CAN and one for the button.
+This board therefore has exactly four usable expansion pins, plus GPIO44 from
+UART0. The project uses three (two for CAN, one for the button), or five with
+the second CAN bus.
 
 ## Development frameworks
 

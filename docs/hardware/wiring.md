@@ -41,7 +41,8 @@ BMS units.
 
 ## Node budget
 
-Only **one** transceiver is used. The pack of five leaves four spares.
+One transceiver on the pack bus, and a second one if the Victron frames get
+their own bus (below). The pack of five leaves three or four spares.
 
 ## Pin assignment
 
@@ -83,6 +84,38 @@ because every symptom pointed at the bus instead.
 
 For the full P1 pinout see
 [esp32-s3-rlcd-4.2.md](esp32-s3-rlcd-4.2.md#the-2-x-8-expansion-header-p1).
+
+## Second bus for the Victron frames
+
+Optional, with `CONFIG_BMS_VICTRON_SEPARATE_BUS`. The Daly packs only speak
+250 kbit/s, and a Victron-style controller usually listens at 500, so the
+0x355/0x356 frames get their own bus. The S3 has one CAN controller: once a
+second, in the gap before the next Daly request, the firmware reinstalls it on
+the second transceiver at 500 kbit/s, sends the two frames, and moves back.
+That takes about a millisecond, or 5 ms when nothing on that bus acknowledges.
+
+| Signal | P1 pin | GPIO |
+|---|---|---|
+| CAN TX -> 2nd transceiver `D` / `CTX` | **12** | **GPIO44** (U0RXD) |
+| CAN RX <- 2nd transceiver `R` / `CRX` | **9** | **GPIO2** |
+| 3V3, GND | 1, 3 | shared with the first transceiver |
+| `Rs` | - | **the same line as the first transceiver's Rs** (`CONFIG_BMS_CAN_RS_GPIO`) |
+
+- **10k pull-up from `D` to 3V3.** GPIO44 floats at boot and in deep sleep, and
+  a floating `D` can hold the bus dominant. The pull-up keeps it recessive.
+- **Shared Rs**: both transceivers go to standby in deep sleep. Only the pack
+  bus wakes the board.
+- **Never GPIO43** (P1 pin 10). The ROM prints its boot log on U0TXD at every
+  reset. On `D` that puts garbage on the Victron bus. On `R` it fights the
+  transceiver's output: two push-pull drivers on one net, the fault that
+  already killed one transceiver here.
+- **Its own segment.** A separate twisted pair to the winch controller, 120 ohm
+  at both ends (about 60 ohm across CANH-CANL unpowered), ground alongside. Do
+  not join it to the pack bus.
+
+Bring it up like the first one: the loop test build checks both transceivers,
+then an adapter at 500 kbit/s on the second bus should see `0x355`/`0x356` once
+a second, and the pack bus should no longer carry them.
 
 ## Bus parameters
 

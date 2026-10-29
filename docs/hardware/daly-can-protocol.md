@@ -77,7 +77,7 @@ IXXAT USB-to-CAN V2 at 250 kbit/s. It was charging at about 12 A at 100 % SoC.
 
 | | |
 |---|---|
-| Bit rate | **250 kbit/s** (Daly V1.0 §1.1) |
+| Bit rate | **250 kbit/s** (Daly V1.0 §1.1). Not configurable: no app or PC setting changes it. The "inverter protocol" mode set in BMS Monitor/PCMaster can run the port at 500k for a Victron GX, but then it sends Pylontech/Victron frames instead of answering `0x90`-`0x98`, so it is no use here |
 | Frame format | **29-bit extended** identifiers |
 | Data length | 8 bytes, always |
 

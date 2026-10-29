@@ -360,6 +360,10 @@ void board_deep_sleep(uint32_t seconds)
      * button pulls its pin low too. The transceiver drives RX, but the button
      * pin floats without its pull-up, which in deep sleep is the RTC one - and
      * that needs the RTC peripherals kept powered.
+     *
+     * Only the pack bus wakes the board. A second (Victron) transceiver shares
+     * the Rs line, so it is in standby too, and the pull-up on its D keeps
+     * its bus recessive while the TX pin floats.
      */
     rtc_gpio_pullup_en(BOARD_BTN_GPIO);
     rtc_gpio_pulldown_dis(BOARD_BTN_GPIO);

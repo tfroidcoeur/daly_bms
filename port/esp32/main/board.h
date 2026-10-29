@@ -10,6 +10,7 @@
 #include <stdbool.h>
 
 #include "driver/gpio.h"
+#include "sdkconfig.h"
 #include "driver/spi_master.h"
 
 #include "lvgl.h"
@@ -53,10 +54,21 @@
  * like the KEY: a short press turns the page, a hold opens cell detail, and a
  * press wakes the board from deep sleep. GPIO1 because it is on the header and
  * an RTC GPIO (ext1 wake-up), and is not a strap pin - a button held or wet at
- * power-up cannot stop the board from booting, as it could on GPIO0. GPIO2
- * (P1 pin 9) is free.
+ * power-up cannot stop the board from booting, as it could on GPIO0.
  */
 #define BOARD_BTN_GPIO GPIO_NUM_1 /* P1 pin 7, active low, internal pull-up */
+
+/*
+ * The optional second CAN transceiver, for the Victron frames
+ * (CONFIG_BMS_VICTRON_SEPARATE_BUS). By default TX is GPIO44 (U0RXD, P1 pin
+ * 12) and RX GPIO2 (P1 pin 9). Never GPIO43: the ROM prints its boot log on
+ * U0TXD whatever the console setting. A 10k pull-up on the transceiver's D
+ * holds the bus recessive while the TX pin floats, at boot and in deep sleep.
+ */
+#ifdef CONFIG_BMS_VICTRON_SEPARATE_BUS
+#define BOARD_VICTRON_TX ((gpio_num_t)CONFIG_BMS_VICTRON_TX_GPIO)
+#define BOARD_VICTRON_RX ((gpio_num_t)CONFIG_BMS_VICTRON_RX_GPIO)
+#endif
 
 /* Initialise SPI, the ST7305 panel, and LVGL. Returns the LVGL display. */
 lv_display_t *board_display_init(void);

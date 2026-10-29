@@ -5,6 +5,14 @@ All notable changes to this project. Versions follow
 
 ## [Unreleased]
 
+### Added
+
+- `CONFIG_BMS_VICTRON_SEPARATE_BUS`: the Victron frames on their own bus, at
+  500 kbit/s by default, through a second SN65HVD230 on GPIO44 (TX) and GPIO2
+  (RX). The S3 has one CAN controller, so it moves to the second transceiver
+  once a second, in the gap before a Daly request, and back. The loop test
+  checks both transceivers. Off by default; without it nothing changes.
+
 ### Changed
 
 - The virtual BMS speaks Victron's CAN-bus BMS protocol instead of Daly's, for

@@ -52,6 +52,13 @@ transmit queue needs room for a request and the virtual BMS's two frames.
 *Example:* `port/esp32/main/twai_link.c`. The S3 has a single TWAI controller,
 so all three packs share one bus and are told apart by Daly address.
 
+The virtual BMS's frames can go to a different bus than the packs (Victron
+gear usually runs at 500 kbit/s, Daly only at 250). With a second controller,
+just send them there. With one, as on the S3, the port holds them until the
+poller's next request and lends the controller to the other transceiver for
+those few milliseconds: see `twai_link_send_victron()` and the loops in
+`main.c` and `run_remote.c`. Core needs nothing for either.
+
 ## 3. A display
 
 Create an LVGL display of `UI_HOR_RES` x `UI_VER_RES` (400 x 300) and give it a
