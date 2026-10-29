@@ -7,9 +7,9 @@
  *
  *     ./build/sim_headless can0            decoded model, refreshed twice a second
  *     ./build/sim_headless can0 --raw      every frame, with its decode alongside
- *     ./build/sim_headless can0 --virtual 0x10
- *                                          also answer as the virtual BMS there
- *     ./build/sim_headless vcan0 --virtual 0x10 --server URL --token-file F
+ *     ./build/sim_headless can0 --victron  also broadcast the bank as a Victron
+ *                                          BMS (0x355/0x356)
+ *     ./build/sim_headless vcan0 --victron --server URL --token-file F
  *                                          the remote-reporting firmware: sleep,
  *                                          wake, check in and upload (remote_loop.c)
  *
@@ -47,7 +47,7 @@ static uint32_t g_tx_ok, g_tx_fail, g_rx_frames, g_rx_undecoded;
 
 static void send_frame(can_link_t *link, const can_frame_out_t *tx)
 {
-    if (can_link_send(link, tx->id, tx->data, tx->len)) {
+    if (can_link_send(link, tx->id, tx->ext, tx->data, tx->len)) {
         g_tx_ok++;
     } else {
         g_tx_fail++;
@@ -122,10 +122,10 @@ static void print_model(const system_model_t *m, const vbms_t *v)
         }
         printf("              frames %u\n\n", p->frames_rx);
     }
-    if (v->addr) {
+    if (v->enabled) {
         bms_pack_t a;
         vbms_aggregate(m, &a);
-        printf("virtual (0x%02X)  %u requests answered", v->addr, v->requests);
+        printf("virtual (Victron)  %u broadcasts", v->sent);
         if (a.online) {
             printf("   %6.2f V  %+7.2f A  SoC %5.1f %%  %lu mAh  %u cells  "
                    "%u sensors  %s%s",
@@ -316,7 +316,7 @@ int main(int argc, char **argv)
 {
     const char *ifname = "vcan0";
     bool raw = false;
-    unsigned long vaddr = 0;
+    bool victron = false;
     const char *server = NULL, *token_file = NULL;
     bool remote = false;
     remote_opts_t ropts = { 0 };
@@ -324,8 +324,8 @@ int main(int argc, char **argv)
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--raw") == 0) {
             raw = true;
-        } else if (strcmp(argv[i], "--virtual") == 0 && i + 1 < argc) {
-            vaddr = strtoul(argv[++i], NULL, 0);
+        } else if (strcmp(argv[i], "--victron") == 0) {
+            victron = true;
         } else if (strcmp(argv[i], "--remote") == 0) {
             remote = true;
         } else if (strcmp(argv[i], "--server") == 0 && i + 1 < argc) {
@@ -343,7 +343,7 @@ int main(int argc, char **argv)
             ropts.live_s = (uint32_t)strtoul(argv[++i], NULL, 0);
         } else if (argv[i][0] == '-') {
             fprintf(stderr,
-                    "usage: %s [interface] [--raw] [--virtual ADDR]\n"
+                    "usage: %s [interface] [--raw] [--victron]\n"
                     "       [--remote | --server URL --token-file FILE]\n"
                     "       [--local-timeout MS] [--report-timeout MS] [--min-checkin S]\n"
                     "       [--live S]\n",
@@ -354,19 +354,12 @@ int main(int argc, char **argv)
         }
     }
 
-    /* The virtual BMS answers in the decoded view only; --raw just watches. */
+    /* The virtual BMS broadcasts in the decoded view only; --raw just watches. */
     vbms_t vbms;
-    if (vaddr && (vaddr > 0xFF || !vbms_init(&vbms, (uint8_t)vaddr))) {
-        fprintf(stderr, "virtual BMS address 0x%lX is taken or out of range\n",
-                vaddr);
-        return 2;
-    }
-    if (!vaddr) {
-        vbms_init(&vbms, 0);
-    }
+    vbms_init(&vbms, victron && !raw);
     can_link_t link;
     /* Raw mode sees the whole bus; the normal view keeps the kernel filter. */
-    if (!can_link_open(&link, ifname, !raw, vbms.addr)) {
+    if (!can_link_open(&link, ifname, !raw)) {
         return 1;
     }
     signal(SIGINT, on_sigint);
@@ -417,17 +410,17 @@ int main(int argc, char **argv)
             send_frame(&link, &tx);
         }
 
+        can_frame_out_t bcast[VBMS_MAX_FRAMES];
+        const uint8_t nb = vbms_tick(&vbms, &model, now, bcast);
+        for (uint8_t f = 0; f < nb; f++) {
+            send_frame(&link, &bcast[f]);
+        }
+
         uint32_t id;
         uint8_t data[8], len;
         while (can_link_recv(&link, &id, data, &len)) {
             g_rx_frames++;
             poller_on_frame(&poller, id, data, len, now);
-
-            can_frame_out_t answer[VBMS_MAX_FRAMES];
-            const uint8_t n = vbms_on_frame(&vbms, &model, id, data, len, answer);
-            for (uint8_t f = 0; f < n; f++) {
-                send_frame(&link, &answer[f]);
-            }
         }
 
         if (now - last_print >= 500) {

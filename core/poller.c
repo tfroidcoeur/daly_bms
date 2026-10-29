@@ -101,6 +101,7 @@ bool poller_tick(poller_t *p, uint32_t now_ms, can_frame_out_t *out)
         if (!skip) {
             out->id     = daly_request_id((daly_cmd_t)s->cmd, pack->addr);
             out->len    = 8;
+            out->ext    = true;
             for (int i = 0; i < 8; i++) {
                 out->data[i] = 0;
             }

@@ -284,20 +284,22 @@ says a fuse has blown.
 
 ## The virtual BMS
 
-`virtual_bms` is the decoder run backwards: it turns the model into Daly
-answers, so another dashboard that knows only one BMS can poll the bank as one.
-It is shaped like the poller - frames in, frames out, no I/O - and depends on
-`bms_model`, `daly_proto` and the poller's `can_frame_out_t`, nothing else.
+`virtual_bms` turns the model into one battery for the winch controller, in
+Victron's CAN-bus BMS protocol: `0x355` and `0x356`, broadcast once a second.
+It started as a fourth Daly BMS answering requests at `0x10`; the controller
+reads Victron, so that went. It is shaped like the poller - a tick in, frames
+out, no I/O - and depends on `bms_model` and the poller's `can_frame_out_t`,
+nothing else.
 
 It builds a whole `bms_pack_t` out of the online packs (`vbms_aggregate()`) and
-encodes from that, which keeps the combining rules in one function and makes
-the test cheap: every answer is fed back through `daly_apply_frame()` and must
-come out as the aggregate went in.
+encodes from that, which keeps the combining rules in one function. The
+aggregate holds more than the two frames carry (cells, MOSFETs, faults), ready
+for the rest of the protocol if the controller ever wants it.
 
-It keeps the decoder's rule about absent data. A field no pack has reported is
-not answered with a zero, because zero is a legal SoC and a legal temperature
-on the dashboard reading it too; the request just goes unanswered, as it would
-from a real pack that does not have the data yet.
+It keeps the decoder's rule about absent data. Zero is a legal SoC and a legal
+temperature on the controller too, so nothing is sent until a pack has reported
+its SoC, and `0x356` goes out without its temperature bytes until one is known.
+With no pack online it falls silent and the controller times the battery out.
 
 ## What is not verified
 

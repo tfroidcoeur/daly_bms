@@ -624,6 +624,7 @@ static void test_poller_round_robin(void)
     CHECK(poller_tick(&p, 0, &f));
     CHECK_EQ(f.id, daly_request_id(DALY_CMD_STATUS, 1));
     CHECK_EQ(f.len, 8);
+    CHECK(f.ext);
 
     /* Nothing more until the inter-request gap has elapsed. */
     CHECK(!poller_tick(&p, 10, &f));
@@ -1236,8 +1237,6 @@ static void test_warnings_formatting(void)
 
 /* --- virtual BMS ---------------------------------------------------------- */
 
-#define VADDR 0x10
-
 /* Three healthy 24S packs with distinguishable numbers, all fully reported. */
 static void vbms_bank(system_model_t *m)
 {
@@ -1274,19 +1273,6 @@ static void vbms_bank(system_model_t *m)
         p->cycles_valid  = true;
         p->cycles        = (uint16_t)(10 + i);
     }
-}
-
-static void test_vbms_addresses(void)
-{
-    vbms_t v;
-    CHECK(!vbms_init(&v, 0));
-    CHECK(!vbms_init(&v, 0x01));
-    CHECK(!vbms_init(&v, 0x03));
-    CHECK(!vbms_init(&v, DALY_HOST_ADDR));
-    CHECK_EQ(v.addr, 0);
-    CHECK(vbms_init(&v, 0x04));
-    CHECK(vbms_init(&v, VADDR));
-    CHECK_EQ(v.addr, VADDR);
 }
 
 static void test_vbms_aggregate(void)
@@ -1366,92 +1352,93 @@ static void test_vbms_aggregate(void)
     CHECK_EQ(a.cell_max_mv, 3450);           /* but 0x91 still reports it */
 }
 
-/* Ask the virtual BMS for `cmd` and feed the answer to a reader's decoder. */
-static uint8_t vbms_ask(vbms_t *v, const system_model_t *m, uint8_t cmd,
-                        bms_pack_t *reader)
+static uint16_t le16(const uint8_t *d)
 {
-    static const uint8_t zero[8] = { 0 };
-    can_frame_out_t out[VBMS_MAX_FRAMES];
-
-    const uint8_t n = vbms_on_frame(v, m, daly_request_id((daly_cmd_t)cmd, VADDR),
-                                    zero, 8, out);
-    for (uint8_t f = 0; f < n; f++) {
-        uint8_t rcmd = 0, src = 0;
-        CHECK(daly_decode_id(out[f].id, &rcmd, &src));
-        CHECK_EQ(rcmd, cmd);
-        CHECK_EQ(src, VADDR);
-        CHECK_EQ(out[f].len, 8);
-        daly_apply_frame(reader, rcmd, out[f].data);
-    }
-    return n;
+    return (uint16_t)(d[0] | (d[1] << 8));
 }
 
-static void test_vbms_round_trip(void)
+static void test_vbms_frames(void)
+{
+    system_model_t m;
+    bms_pack_t a;
+    can_frame_out_t out[VBMS_MAX_FRAMES];
+
+    vbms_bank(&m);
+    vbms_aggregate(&m, &a);
+    CHECK_EQ(vbms_encode(&a, out), 2);
+
+    /* 0x355: SoC 81 %, SoH 100 %, high-res SoC 81.00 %, little-endian. */
+    static const uint8_t soc[6] = { 0x51, 0x00, 0x64, 0x00, 0xA4, 0x1F };
+    CHECK_EQ(out[0].id, 0x355u);
+    CHECK(!out[0].ext);
+    CHECK_EQ(out[0].len, 6);
+    CHECK(memcmp(out[0].data, soc, 6) == 0);
+
+    /* 0x356: 81.10 V, -33.0 A (discharging is negative, as Victron reads it),
+     * 23.0 C - the warmest sensor of any pack. */
+    static const uint8_t vit[6] = { 0xAE, 0x1F, 0xB6, 0xFE, 0xE6, 0x00 };
+    CHECK_EQ(out[1].id, 0x356u);
+    CHECK(!out[1].ext);
+    CHECK_EQ(out[1].len, 6);
+    CHECK(memcmp(out[1].data, vit, 6) == 0);
+
+    /* Rounding to the wire's resolution, half away from zero either way. */
+    a.soc_pct_x10 = 815;
+    a.pack_mv     = 81105;
+    a.pack_ma     = -33050;
+    vbms_encode(&a, out);
+    CHECK_EQ(le16(&out[0].data[0]), 82);
+    CHECK_EQ(le16(&out[0].data[4]), 8150);
+    CHECK_EQ(le16(&out[1].data[0]), 8111);
+    CHECK_EQ((int16_t)le16(&out[1].data[2]), -331);
+
+    /* Charging is positive; out-of-range values clamp, not wrap. */
+    a.pack_ma = 3600000;
+    a.pack_mv = 400000;
+    vbms_encode(&a, out);
+    CHECK_EQ((int16_t)le16(&out[1].data[2]), INT16_MAX);
+    CHECK_EQ((int16_t)le16(&out[1].data[0]), INT16_MAX);
+    a.pack_ma = -3600000;
+    vbms_encode(&a, out);
+    CHECK_EQ((int16_t)le16(&out[1].data[2]), INT16_MIN);
+
+    /* Below freezing stays signed. */
+    a.temp_max_c = -5;
+    vbms_encode(&a, out);
+    CHECK_EQ((int16_t)le16(&out[1].data[4]), -50);
+
+    /* No temperature yet: a shorter 0x356, not a made-up 0 C. */
+    a.temp_minmax_valid = false;
+    vbms_encode(&a, out);
+    CHECK_EQ(out[1].len, 4);
+}
+
+static void test_vbms_timing(void)
 {
     system_model_t m;
     vbms_t v;
-    bms_pack_t a, r;
+    can_frame_out_t out[VBMS_MAX_FRAMES];
 
     vbms_bank(&m);
-    m.pack[0].cell_mv[7] = 3401;
-    m.pack[2].alarms[1]  = 0x40;
-    m.pack[1].balance_bits = 1u << 20;
-    vbms_aggregate(&m, &a);
-    vbms_init(&v, VADDR);
-    memset(&r, 0, sizeof r);
+    vbms_init(&v, true);
 
-    /* The same order the poller uses: 0x94 first, to size the bursts. */
-    CHECK_EQ(vbms_ask(&v, &m, DALY_CMD_STATUS, &r), 1);
-    CHECK_EQ(vbms_ask(&v, &m, DALY_CMD_SOC, &r), 1);
-    CHECK_EQ(vbms_ask(&v, &m, DALY_CMD_CELL_MINMAX, &r), 1);
-    CHECK_EQ(vbms_ask(&v, &m, DALY_CMD_TEMP_MINMAX, &r), 1);
-    CHECK_EQ(vbms_ask(&v, &m, DALY_CMD_MOS, &r), 1);
-    CHECK_EQ(vbms_ask(&v, &m, DALY_CMD_CELL_VOLTS, &r), 8);
-    CHECK_EQ(vbms_ask(&v, &m, DALY_CMD_CELL_TEMPS, &r), 1);
-    CHECK_EQ(vbms_ask(&v, &m, DALY_CMD_BALANCE, &r), 1);
-    CHECK_EQ(vbms_ask(&v, &m, DALY_CMD_FAULTS, &r), 1);
+    /* The first pair goes out at once, then one per period. */
+    CHECK_EQ(vbms_tick(&v, &m, 5000, out), 2);
+    CHECK_EQ(vbms_tick(&v, &m, 5001, out), 0);
+    CHECK_EQ(vbms_tick(&v, &m, 5999, out), 0);
+    CHECK_EQ(vbms_tick(&v, &m, 6000, out), 2);
+    CHECK_EQ(v.sent, 2u);
 
-    /* What the reader decoded is what we meant, to the wire's resolution. */
-    CHECK_EQ(r.cell_count, 24);
-    CHECK_EQ(r.temp_count, 6);
-    CHECK(r.cycles_valid);
-    CHECK_EQ(r.cycles, a.cycles);
-    CHECK_EQ(r.pack_mv, 81100);
-    CHECK_EQ(r.pack_ma, a.pack_ma);          /* survives either current sign */
-    CHECK_EQ(r.soc_pct_x10, a.soc_pct_x10);
-    CHECK_EQ(r.cell_max_mv, a.cell_max_mv);
-    CHECK_EQ(r.temp_max_c, a.temp_max_c);
-    CHECK_EQ(r.temp_min_idx, a.temp_min_idx);
-    CHECK_EQ(r.charge_state, 2);
-    CHECK(r.chg_mos && r.dsg_mos);
-    CHECK_EQ(r.remaining_mah, a.remaining_mah);
-    /*
-     * Numbered from 1, like the real packs, so a reader that has to learn the
-     * base spends the first burst learning it - exactly as it would on them.
-     * (0x96, one frame here, is its own last frame and lands first time.)
-     */
-    CHECK(!r.cells_valid);
-    CHECK_EQ(r.rx.base_cells, DALY_FRAME_BASE_ONE);
-    CHECK_EQ(vbms_ask(&v, &m, DALY_CMD_CELL_VOLTS, &r), 8);
-    CHECK_EQ(vbms_ask(&v, &m, DALY_CMD_CELL_TEMPS, &r), 1);
-    CHECK(r.cells_valid);
-    CHECK(memcmp(r.cell_mv, a.cell_mv, 24 * sizeof r.cell_mv[0]) == 0);
-    CHECK(r.temps_valid);
-    CHECK(memcmp(r.temp_c, a.temp_c, 6) == 0);
-    CHECK_EQ(r.balance_bits, 1u << 20);
-    CHECK(memcmp(r.alarms, a.alarms, BMS_ALARM_BYTES) == 0);
+    /* Across the 32-bit millisecond wrap. */
+    vbms_init(&v, true);
+    CHECK_EQ(vbms_tick(&v, &m, 0xFFFFFF00u, out), 2);
+    CHECK_EQ(vbms_tick(&v, &m, 0x00000010u, out), 0);
+    CHECK_EQ(vbms_tick(&v, &m, 0x000002E8u, out), 2);
 
-    /* The life byte counts our own 0x93 answers, like a real pack's does. */
-    const uint8_t life = r.bms_life;
-    vbms_ask(&v, &m, DALY_CMD_MOS, &r);
-    CHECK_EQ(r.bms_life, (uint8_t)(life + 1));
-
-    /* The answer goes back to whoever asked, not always to 0x40. */
-    can_frame_out_t out[VBMS_MAX_FRAMES];
-    const uint8_t zero[8] = { 0 };
-    CHECK_EQ(vbms_on_frame(&v, &m, 0x18900000u | (VADDR << 8) | 0x41, zero, 8,
-                           out), 1);
-    CHECK_EQ(out[0].id, 0x18904110u);
+    /* Disabled sends nothing. */
+    vbms_t off;
+    vbms_init(&off, false);
+    CHECK_EQ(vbms_tick(&off, &m, 5000, out), 0);
 }
 
 static void test_vbms_silence(void)
@@ -1459,47 +1446,26 @@ static void test_vbms_silence(void)
     system_model_t m;
     vbms_t v;
     can_frame_out_t out[VBMS_MAX_FRAMES];
-    const uint8_t zero[8] = { 0 };
 
     vbms_bank(&m);
-    vbms_init(&v, VADDR);
+    vbms_init(&v, true);
 
-    /* Not for us: a request to a real pack, and a pack's own response. */
-    CHECK_EQ(vbms_on_frame(&v, &m, daly_request_id(DALY_CMD_SOC, 0x01), zero, 8,
-                           out), 0);
-    CHECK_EQ(vbms_on_frame(&v, &m, 0x18904001u, zero, 8, out), 0);
-    CHECK_EQ(vbms_on_frame(&v, &m, daly_request_id(DALY_CMD_SOC, VADDR) ^
-                           0x01000000u, zero, 8, out), 0);   /* wrong priority */
-
-    /* Disabled answers nothing. */
-    vbms_t off;
-    vbms_init(&off, 0);
-    CHECK_EQ(vbms_on_frame(&off, &m, daly_request_id(DALY_CMD_SOC, 0), zero, 8,
-                           out), 0);
-
-    /* Fields nobody has reported are not invented. */
+    /* No SoC from any pack yet: nothing, rather than a battery at 0 %. */
     for (int i = 0; i < 3; i++) {
-        m.pack[i].soc_valid   = false;
-        m.pack[i].cells_valid = false;
+        m.pack[i].soc_valid = false;
     }
-    CHECK_EQ(vbms_on_frame(&v, &m, daly_request_id(DALY_CMD_SOC, VADDR), zero,
-                           8, out), 0);
-    CHECK_EQ(vbms_on_frame(&v, &m, daly_request_id(DALY_CMD_CELL_VOLTS, VADDR),
-                           zero, 8, out), 0);
-    CHECK_EQ(vbms_on_frame(&v, &m, daly_request_id(DALY_CMD_MOS, VADDR), zero,
-                           8, out), 1);
+    CHECK_EQ(vbms_tick(&v, &m, 1000, out), 0);
 
-    /* One pack's temperatures still pending holds back the whole 0x96 set. */
-    m.pack[1].temps_valid = false;
-    CHECK_EQ(vbms_on_frame(&v, &m, daly_request_id(DALY_CMD_CELL_TEMPS, VADDR),
-                           zero, 8, out), 0);
+    /* It arrives: the first pair goes out straight away, not a period later. */
+    m.pack[1].soc_valid = true;
+    CHECK_EQ(vbms_tick(&v, &m, 1100, out), 2);
+    CHECK_EQ(le16(&out[0].data[0]), 81);       /* pack 2 alone */
 
-    /* Every pack offline: silent, so the reader shows it offline too. */
+    /* Every pack offline: silent, so the controller times the battery out. */
     for (int i = 0; i < 3; i++) {
         m.pack[i].online = false;
     }
-    CHECK_EQ(vbms_on_frame(&v, &m, daly_request_id(DALY_CMD_FAULTS, VADDR),
-                           zero, 8, out), 0);
+    CHECK_EQ(vbms_tick(&v, &m, 5000, out), 0);
 }
 
 int main(void)
@@ -1539,9 +1505,9 @@ int main(void)
         { "0x98 worst fault",            test_fault_worst },
         { "warnings: named BMS faults",  test_warnings_name_bms_faults },
         { "warnings: formatting",        test_warnings_formatting },
-        { "vbms: addresses",             test_vbms_addresses },
         { "vbms: aggregation",           test_vbms_aggregate },
-        { "vbms: round trip",            test_vbms_round_trip },
+        { "vbms: Victron frames",        test_vbms_frames },
+        { "vbms: timing",                test_vbms_timing },
         { "vbms: silence",               test_vbms_silence },
     };
 

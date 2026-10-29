@@ -21,6 +21,7 @@ typedef struct {
     uint32_t id;
     uint8_t  data[8];
     uint8_t  len;
+    bool     ext;    /* 29-bit identifier (Daly); false = 11-bit (Victron) */
 } can_frame_out_t;
 
 typedef struct {

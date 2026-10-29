@@ -8,7 +8,7 @@
 
 static const char *TAG = "twai";
 
-bool twai_link_start(bool accept_requests)
+bool twai_link_start(void)
 {
     const twai_general_config_t g = {
         .mode            = TWAI_MODE_NORMAL,
@@ -16,7 +16,7 @@ bool twai_link_start(bool accept_requests)
         .rx_io           = BOARD_CAN_RX,
         .clkout_io       = TWAI_IO_UNUSED,
         .bus_off_io      = TWAI_IO_UNUSED,
-        .tx_queue_len    = 20,   /* a virtual-BMS 0x95 answer is 8 at once */
+        .tx_queue_len    = 8,
         .rx_queue_len    = 32,   /* a 0x95 burst is 6 frames back to back */
         .alerts_enabled  = TWAI_ALERT_ALL,
         .clkout_divider  = 0,
@@ -32,10 +32,7 @@ bool twai_link_start(bool accept_requests)
      * in a 32-bit word: for extended frames the 29-bit ID sits in bits 31..3.
      */
     const uint32_t id_bits   = (0x18u << 24) | (0x40u << 8);
-    /* With the virtual BMS on, the destination is left free too: the TWAI has
-     * one 29-bit filter worth the name, and a second destination does not fit
-     * in it. The extra traffic is other hosts' requests, a few a second. */
-    const uint32_t care_bits = accept_requests ? 0x1F000000u : 0x1F00FF00u;
+    const uint32_t care_bits = 0x1F00FF00u;
     const twai_filter_config_t f = {
         .acceptance_code = id_bits << 3,
         /* The TWAI mask is inverted: a 1 bit means "do not care". */
@@ -64,12 +61,12 @@ void twai_link_stop(void)
     twai_driver_uninstall();
 }
 
-bool twai_link_send(uint32_t ext_id, const uint8_t *data, uint8_t len)
+bool twai_link_send(uint32_t id, bool ext, const uint8_t *data, uint8_t len)
 {
     twai_message_t m;
     memset(&m, 0, sizeof m);
-    m.identifier       = ext_id & 0x1FFFFFFFu;
-    m.extd             = 1;
+    m.identifier       = id & (ext ? 0x1FFFFFFFu : 0x7FFu);
+    m.extd             = ext;
     m.data_length_code = len > 8 ? 8 : len;
     memcpy(m.data, data, m.data_length_code);
 

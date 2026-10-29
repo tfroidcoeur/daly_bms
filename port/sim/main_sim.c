@@ -47,7 +47,7 @@ int main(int argc, char **argv)
     const char *ifname = argc > 1 ? argv[1] : "vcan0";
 
     can_link_t link;
-    if (!can_link_open(&link, ifname, true, 0)) {
+    if (!can_link_open(&link, ifname, true)) {
         return 1;
     }
     signal(SIGINT, on_sigint);
@@ -94,7 +94,7 @@ int main(int argc, char **argv)
 
         can_frame_out_t tx;
         if (poller_tick(&poller, now, &tx)) {
-            can_link_send(&link, tx.id, tx.data, tx.len);
+            can_link_send(&link, tx.id, tx.ext, tx.data, tx.len);
         }
 
         uint32_t id;

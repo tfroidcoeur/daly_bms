@@ -21,7 +21,7 @@ device                                   server
   |-- POST /device/report {snapshot} ----->|
   |<-- 204 --------------------------------|
   ...
-  |   screen on (touch, dashboard)         |
+  |   screen on (touch, bus traffic)       |
   |-- POST /device/live?every=5 {snapshot} |   every live interval, unasked
   |<-- 204 --------------------------------|
 ```
@@ -85,8 +85,8 @@ check-in if it still wants one.
 
 ## `POST /device/live?every=<s>`
 
-While the screen is on (LOCAL: a touch, a dashboard request, or current
-flowing in the bank keeps it so), the device posts a snapshot every live
+While the screen is on (LOCAL: a touch, bus traffic waking it from deep
+sleep, or current flowing in the bank keeps it so), the device posts a snapshot every live
 interval without being asked. Same body as a report, but `"req": null`.
 `every` is the device's interval in seconds (`1` … `3600`); the page uses it
 to tell whether live data is still coming in (at most three intervals, and at
@@ -190,7 +190,7 @@ trailing newline) produced from the models described in
   that is treated as `none`.
 - **Interval floor:** a console setting `min_checkin` (seconds, default 1)
   raises any shorter `next_s` to itself.
-- **Local wake:** a touch or a request to the virtual BMS triggers a check-in
+- **Local wake:** a touch, or bus traffic waking it from deep sleep, triggers a check-in
   right away, even with timed check-ins disabled - this is how a re-enabled
   interval reaches a device that had stopped checking in.
 - **Deep or awake:** an interval of 60 s or more is slept in deep sleep; a

@@ -79,11 +79,10 @@ ok "lock: exclusive on the real database, released afterwards"
 
 echo "=== packs and device"
 "$PY" "$REPO/tools/daly_sim.py" -i "$IF" --scenario sleepy --sleep-after 5 \
-    --wake-requests 3 --dashboard-every 0.5 --dashboard-file "$WORK/dashboard" \
-    > "$WORK/daly.log" 2>&1 &
+    --wake-requests 3 > "$WORK/daly.log" 2>&1 &
 DALY_PID=$!
 mkfifo "$WORK/touch"
-"$REPO/build/sim_headless" "$IF" --virtual 0x10 --server "$API" \
+"$REPO/build/sim_headless" "$IF" --victron --server "$API" \
     --token-file "$WORK/token" --local-timeout 3000 --report-timeout 15000 \
     < "$WORK/touch" > "$WORK/device.log" 2>&1 &
 SIM_PID=$!
@@ -98,6 +97,8 @@ ok "boot -> live screen -> standby after the local timeout; 2 s interval waited 
 timeout 3 candump -n 200 "$IF" > "$WORK/bus.txt" || true
 REQ=$(grep -cE ' 1890..40 | 189[0-9]0[123]40 ' "$WORK/bus.txt" || true)
 [ "$REQ" -eq 0 ] || fail "bus not quiet in standby: $REQ requests to packs"
+VIC=$(grep -cE ' 35[56] ' "$WORK/bus.txt" || true)
+[ "$VIC" -eq 0 ] || fail "bus not quiet in standby: $VIC Victron frames"
 ok "bus quiet in standby"
 
 sleep 6   # past --sleep-after: the packs doze off
@@ -137,25 +138,29 @@ php_eval 'echo Avia_BMS_Schedule::next() > time() ? "advanced" : "stuck";' | gre
 php_eval 'Avia_BMS_Settings::set_auto_period_h(0);'
 ok "due schedule -> report; next slot moved forward"
 
-echo "=== dashboard wakes the screen"
+echo "=== Victron broadcast while awake"
+timeout 6 candump -L "$IF,355:7FF,356:7FF" > "$WORK/victron.txt" || true &
+CANDUMP_PID=$!
+sleep 0.5
 M=$(mark)
-touch "$WORK/dashboard"
-wait_for 'dashboard wake' 5 "$M"
-wait_for 'state IDLE -> LOCAL' 5 "$M"
-# daly_sim prints its dashboard summary every 10 s while the dashboard runs.
-for _ in $(seq 1 30); do
-    grep -qE 'dashboard: sent [0-9]+, answered [1-9]' "$WORK/daly.log" && break
-    sleep 1
-done
-grep -qE 'dashboard: sent [0-9]+, answered [1-9]' "$WORK/daly.log" \
-    || fail "virtual BMS never answered the dashboard"
-M2=$(mark)
-sleep 2
-tail -n +"$((M2 + 1))" "$WORK/device.log" | grep -q 'state LOCAL -> IDLE' \
-    && fail "went to standby while the dashboard was still polling"
-rm -f "$WORK/dashboard"
-wait_for 'state LOCAL -> IDLE' 10 "$M2"
-ok "dashboard request -> LOCAL, virtual BMS answers, standby once it stops"
+echo t >&3
+wait_for 'state IDLE -> LOCAL' 3 "$M"
+wait_for 'state LOCAL -> IDLE' 15 "$M"
+wait "$CANDUMP_PID" || true
+python3 - "$WORK/victron.txt" <<'PYEOF' || fail "Victron broadcast wrong"
+import struct, sys
+frames = {}
+for line in open(sys.argv[1]):
+    cid, data = line.split()[2].split("#")
+    frames.setdefault(int(cid, 16), []).append(bytes.fromhex(data))
+assert len(frames.get(0x355, [])) >= 2, frames.keys()
+assert len(frames.get(0x356, [])) >= 2, frames.keys()
+soc, soh = struct.unpack_from("<HH", frames[0x355][-1])
+mv, da = struct.unpack_from("<hh", frames[0x356][-1])
+assert 0 <= soc <= 100 and soh == 100, (soc, soh)
+assert 7500 <= mv <= 9000, mv      # the three sim packs average about 81.6 V
+PYEOF
+ok "screen on -> 0x355/0x356 about once a second, sane values; standby -> they stop"
 
 echo "=== touch"
 M=$(mark)

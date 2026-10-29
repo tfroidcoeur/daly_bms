@@ -7,6 +7,14 @@ All notable changes to this project. Versions follow
 
 ### Changed
 
+- The virtual BMS speaks Victron's CAN-bus BMS protocol instead of Daly's, for
+  the winch controller: the bank goes out as `0x355` (SoC, SoH) and `0x356`
+  (voltage, current, warmest temperature), 11-bit, once a second while the
+  display polls the packs. The Daly emulation at 0x10 is gone, and with it the
+  wake on a dashboard request; `CONFIG_BMS_VIRTUAL_ADDR` is replaced by
+  `CONFIG_BMS_VICTRON` (on by default), `sim_headless --virtual ADDR` by
+  `--victron`, and `daly_sim.py`'s dashboard poller by a `--victron` listener.
+
 - The two capacitive touch pads are gone: too unreliable behind the enclosure
   wall in the winch. One mechanical push button between GPIO1 (P1 pin 7) and
   GND replaces them and works like the KEY: a short press turns the page, a

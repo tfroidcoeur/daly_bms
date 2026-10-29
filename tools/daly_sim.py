@@ -39,10 +39,9 @@ Scenarios:
                 --wake-requests). Pack 3 is the slowest to wake. The bank is
                 at rest, as it is when packs get to sleep
 
-Dashboard poller, to see what a dashboard that is not ours would get back:
-    --dashboard-every S   send a 0x90 request to --dashboard-addr every S
-                          seconds, from host 0x40, and count the replies
-    --dashboard-file P    with the above, poll only while file P exists
+Victron listener, to see what the winch controller would get from the display:
+    --victron             decode the display's 0x355/0x356 broadcasts and print
+                          a summary every 10 s while they arrive
 
 Protocol variants, for the two places Daly's own document and the field layout
 this project was built from disagree:
@@ -58,7 +57,6 @@ that gets exercised without owning a pack of each kind.
 
 import argparse
 import math
-import os
 import random
 import struct
 import sys
@@ -282,6 +280,26 @@ def apply_scenario(name, packs):
         sys.exit(f"unknown scenario: {name}")
 
 
+VICTRON_SOC = 0x355
+VICTRON_VIT = 0x356
+
+
+def victron_summary(last):
+    """What the latest 0x355/0x356 said, in units."""
+    out = []
+    soc = last.get(VICTRON_SOC)
+    if soc and len(soc) >= 4:
+        s, h = struct.unpack_from("<HH", soc)
+        out.append(f"SoC {s} %  SoH {h} %")
+    vit = last.get(VICTRON_VIT)
+    if vit and len(vit) >= 4:
+        v, a = struct.unpack_from("<hh", vit)
+        out.append(f"{v / 100:.2f} V  {a / 10:+.1f} A")
+        if len(vit) >= 6:
+            out.append(f"{struct.unpack_from('<h', vit, 4)[0] / 10:.1f} C")
+    return "   ".join(out)
+
+
 def main():
     ap = argparse.ArgumentParser(
         description=__doc__,
@@ -319,15 +337,9 @@ def main():
                     help="sleepy scenario: a sleeping pack wakes after N requests "
                          "addressed to it, all unanswered (default 3). Pack 3 "
                          "takes 2N")
-    ap.add_argument("--dashboard-every", type=float, default=0.0, metavar="S",
-                    help="send a 0x90 request to --dashboard-addr every S seconds "
-                         "from host 0x40 and count the replies (default 0: off)")
-    ap.add_argument("--dashboard-addr", type=lambda s: int(s, 0), default=0x10,
-                    help="BMS address the dashboard polls (default 0x10)")
-    ap.add_argument("--dashboard-file", metavar="PATH",
-                    help="with --dashboard-every, poll only while PATH exists, "
-                         "so a test can switch the dashboard on and off by "
-                         "touching or removing it")
+    ap.add_argument("--victron", action="store_true",
+                    help="listen for the display's Victron 0x355/0x356 "
+                         "broadcasts and print what they say every 10 s")
     args = ap.parse_args()
 
     packs = [Pack(1, 84.0, 1), Pack(2, 79.5, 2), Pack(3, 81.2, 3)]
@@ -355,14 +367,11 @@ def main():
         "extended": True,
     }]
 
-    # Dashboard replies come back from the BMS address to host 0x40, which the
-    # filter above does not take (its low byte is the BMS address). Ask for that
-    # one id exactly. Only when polling, so a plain run listens as it always did.
-    dash_req_id = (PRIO << 24) | (CMD_SOC << 16) | (args.dashboard_addr << 8) | HOST_ADDR
-    dash_resp_id = (PRIO << 24) | (CMD_SOC << 16) | (HOST_ADDR << 8) | args.dashboard_addr
-    if args.dashboard_every > 0:
-        filters.append({"can_id": dash_resp_id, "can_mask": 0x1FFFFFFF,
-                        "extended": True})
+    # The display's Victron broadcasts are 11-bit: ask for those two exactly.
+    if args.victron:
+        for vid in (VICTRON_SOC, VICTRON_VIT):
+            filters.append({"can_id": vid, "can_mask": 0x7FF,
+                            "extended": False})
 
     try:
         bus = can.Bus(interface=args.interface, channel=args.channel,
@@ -380,17 +389,15 @@ def main():
           f"0x95/0x96 frames numbered from {args.frame_base}"
           f"{', 0x94 bytes 5-7 empty' if args.no_cycles else ''}"
           f"{', current inverted' if args.invert_current else ''}")
-    if args.dashboard_every > 0:
-        print(f"dashboard: 0x90 to 0x{args.dashboard_addr:02X} every "
-              f"{args.dashboard_every:g} s"
-              + (f" while {args.dashboard_file} exists"
-                 if args.dashboard_file else ""))
+    if args.victron:
+        print("victron: listening for 0x355/0x356")
 
     rng = random.Random(0)
     start = last = time.monotonic()
     requests = replies = 0
-    dash_sent = dash_answered = 0
-    next_poll = next_report = start
+    victron = {VICTRON_SOC: 0, VICTRON_VIT: 0}
+    victron_last = {}
+    next_report = start + 10
 
     with bus:
         while True:
@@ -405,33 +412,25 @@ def main():
                 p.tick(dt)
                 p.idle_check(now)
 
-            # Looked at on every pass, so touching or removing the file takes
-            # effect within a fraction of a second.
-            dash_on = args.dashboard_every > 0 and (
-                args.dashboard_file is None or os.path.exists(args.dashboard_file))
-            if not dash_on:
-                next_report = now + 10      # first report 10 s after switching on
-            else:
-                if now >= next_poll:
-                    bus.send(can.Message(arbitration_id=dash_req_id,
-                                         data=bytes(8), is_extended_id=True))
-                    dash_sent += 1
-                    next_poll = now + args.dashboard_every
-                    if args.verbose:
-                        print(f"  dash  {dash_req_id:08X} ->")
-                if now >= next_report:
-                    print(f"\ndashboard: sent {dash_sent}, answered {dash_answered}",
-                          flush=True)
-                    next_report = now + 10
+            # Only windows that saw something are reported, so a test can
+            # tell broadcasting from silence by the lines alone.
+            if args.victron and now >= next_report:
+                if any(victron.values()):
+                    print(f"\nvictron: 0x355 x{victron[VICTRON_SOC]}, "
+                          f"0x356 x{victron[VICTRON_VIT]}   "
+                          f"{victron_summary(victron_last)}", flush=True)
+                victron = {VICTRON_SOC: 0, VICTRON_VIT: 0}
+                next_report = now + 10
 
             msg = bus.recv(timeout=0.2)
-            if msg is None or not msg.is_extended_id:
+            if msg is None:
                 continue
-
-            if msg.arbitration_id == dash_resp_id and args.dashboard_every > 0:
-                dash_answered += 1
-                if args.verbose:
-                    print(f"  dash  {msg.arbitration_id:08X} {msg.data.hex(' ')}")
+            if not msg.is_extended_id:
+                if msg.arbitration_id in victron:
+                    victron[msg.arbitration_id] += 1
+                    victron_last[msg.arbitration_id] = bytes(msg.data)
+                    if args.verbose:
+                        print(f"  vic   {msg.arbitration_id:03X} {msg.data.hex(' ')}")
                 continue
 
             cmd = (msg.arbitration_id >> 16) & 0xFF

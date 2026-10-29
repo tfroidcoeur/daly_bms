@@ -39,6 +39,13 @@ static const char *TAG = "bms";
  * pushing new values into the widgets. */
 #define UI_UPDATE_MS 500
 
+/* The bank as one Victron battery (0x355/0x356) for the winch controller. */
+#ifdef CONFIG_BMS_VICTRON
+#define VBMS_ENABLED true
+#else
+#define VBMS_ENABLED false
+#endif
+
 static uint32_t now_ms(void)
 {
     return (uint32_t)(esp_timer_get_time() / 1000);
@@ -65,7 +72,7 @@ static void raw_logger(void)
 
         can_frame_out_t tx;
         if (poller_tick(&poller, now, &tx)) {
-            twai_link_send(tx.id, tx.data, tx.len);
+            twai_link_send(tx.id, tx.ext, tx.data, tx.len);
             printf("TX %08" PRIX32 "\n", tx.id);
         }
 
@@ -282,7 +289,7 @@ void app_main(void)
     return;
 #endif
 
-    if (!twai_link_start(CONFIG_BMS_VIRTUAL_ADDR != 0)) {
+    if (!twai_link_start()) {
         ESP_LOGE(TAG, "CAN did not come up; check the transceiver wiring");
     }
 
@@ -313,13 +320,10 @@ void app_main(void)
     bms_model_init(&model);
     poller_init(&poller, &model, poller_default_cfg());
 
-    /* The bank as one more Daly BMS, for a dashboard that reads only one. */
     vbms_t vbms;
-    if (vbms_init(&vbms, CONFIG_BMS_VIRTUAL_ADDR)) {
-        ESP_LOGI(TAG, "virtual BMS answering at 0x%02X", vbms.addr);
-    } else if (CONFIG_BMS_VIRTUAL_ADDR != 0) {
-        ESP_LOGE(TAG, "virtual BMS address 0x%02X is taken; virtual BMS off",
-                 CONFIG_BMS_VIRTUAL_ADDR);
+    vbms_init(&vbms, VBMS_ENABLED);
+    if (vbms.enabled) {
+        ESP_LOGI(TAG, "virtual BMS broadcasting Victron 0x355/0x356");
     }
 
     uint32_t last_ui = 0;
@@ -339,19 +343,19 @@ void app_main(void)
 
         can_frame_out_t tx;
         if (poller_tick(&poller, now, &tx)) {
-            twai_link_send(tx.id, tx.data, tx.len);
+            twai_link_send(tx.id, tx.ext, tx.data, tx.len);
+        }
+
+        can_frame_out_t bcast[VBMS_MAX_FRAMES];
+        const uint8_t nb = vbms_tick(&vbms, &model, now, bcast);
+        for (uint8_t i = 0; i < nb; i++) {
+            twai_link_send(bcast[i].id, bcast[i].ext, bcast[i].data, bcast[i].len);
         }
 
         uint32_t id;
         uint8_t data[8], len;
         while (twai_link_recv(&id, data, &len)) {
             poller_on_frame(&poller, id, data, len, now);
-
-            can_frame_out_t answer[VBMS_MAX_FRAMES];
-            const uint8_t n = vbms_on_frame(&vbms, &model, id, data, len, answer);
-            for (uint8_t i = 0; i < n; i++) {
-                twai_link_send(answer[i].id, answer[i].data, answer[i].len);
-            }
         }
 
         /*

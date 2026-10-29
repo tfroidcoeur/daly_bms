@@ -42,12 +42,6 @@ void pwr_on_touch(pwr_t *p, uint32_t now_ms)
     p->state = PWR_LOCAL;
 }
 
-void pwr_on_vbms_request(pwr_t *p, uint32_t now_ms)
-{
-    p->last_activity_ms = now_ms;
-    p->state = PWR_LOCAL;
-}
-
 void pwr_on_bank_active(pwr_t *p, uint32_t now_ms)
 {
     if (p->state == PWR_LOCAL) {

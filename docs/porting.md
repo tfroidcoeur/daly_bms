@@ -23,9 +23,9 @@ Four operations, all non-blocking:
 
 | Operation | Notes |
 |---|---|
-| send an extended frame | must not block the loop on a stalled bus; dropping is fine |
+| send a frame | extended for the packs, standard (11-bit) for the virtual BMS; must not block the loop on a stalled bus; dropping is fine |
 | receive an extended frame | return "empty" only when the queue is empty; skip standard-ID frames |
-| filter (optional) | accept priority `0x18` with destination `0x40`; also the virtual BMS address if enabled |
+| filter (optional) | accept priority `0x18` with destination `0x40` |
 | bus-off recovery | the bus must come back by itself after a fault |
 
 Any controller fits: an on-chip one (ESP32 TWAI, STM32 bxCAN/FDCAN, NXP
@@ -37,17 +37,17 @@ The main loop is the same on every platform:
 ```c
 can_frame_out_t tx;
 if (poller_tick(&poller, now, &tx)) {
-    link_send(tx.id, tx.data, tx.len);
+    link_send(tx.id, tx.ext, tx.data, tx.len);
 }
+n = vbms_tick(&vbms, &model, now, bcast);                      /* optional */
+for (i = 0; i < n; i++) link_send(bcast[i].id, bcast[i].ext, bcast[i].data, bcast[i].len);
 while (link_recv(&id, data, &len)) {
     poller_on_frame(&poller, id, data, len, now);
-    n = vbms_on_frame(&vbms, &model, id, data, len, answer);   /* optional */
-    for (i = 0; i < n; i++) link_send(answer[i].id, answer[i].data, answer[i].len);
 }
 ```
 
-Size the receive queue for a 0x95 burst (8 frames for 24 cells, up to 16), and
-the transmit queue for a virtual-BMS answer of the same size.
+Size the receive queue for a 0x95 burst (8 frames for 24 cells, up to 16). The
+transmit queue needs room for a request and the virtual BMS's two frames.
 
 *Example:* `port/esp32/main/twai_link.c`. The S3 has a single TWAI controller,
 so all three packs share one bus and are told apart by Daly address.

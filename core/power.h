@@ -6,8 +6,9 @@
  * and to keep the display's power bank going for months. So the bus is quiet
  * unless one of three things wants data:
  *
- *   LOCAL   someone touched the screen, or a dashboard is asking the virtual
- *           BMS; live UI, polling, until 5 min pass without either.
+ *   LOCAL   someone touched the screen, or the bus woke the board from deep
+ *           sleep; live UI, polling, until 5 min pass with neither a touch
+ *           nor current flowing.
  *   REPORT  the website asked for a snapshot; polling with the screen left on
  *           "Zzz", until every online pack has a full set or 60 s pass.
  *   IDLE    nothing wants data: CAN quiet, "Zzz" on the screen, waiting for a
@@ -44,7 +45,7 @@ typedef struct {
 typedef struct {
     pwr_cfg_t   cfg;
     pwr_state_t state;
-    uint32_t    last_activity_ms;  /* last touch or virtual-BMS request */
+    uint32_t    last_activity_ms;  /* last touch, or the bank in use */
     uint32_t    report_since_ms;   /* when REPORT began */
     bool        report_wanted;     /* the server asked; upload not yet done */
     bool        upload_due;        /* pwr_tick() said upload, awaiting done */
@@ -69,10 +70,6 @@ void pwr_init(pwr_t *p, pwr_cfg_t cfg, remote_wake_t wake, uint32_t now_ms);
 
 /* The button was pressed. In IDLE or REPORT this switches to LOCAL. */
 void pwr_on_touch(pwr_t *p, uint32_t now_ms);
-
-/* A request for the virtual BMS was seen on the bus (answered or not). Same
- * effect as a touch. */
-void pwr_on_vbms_request(pwr_t *p, uint32_t now_ms);
 
 /*
  * The server asked for a report. From IDLE this enters REPORT; in LOCAL it
@@ -108,7 +105,7 @@ void pwr_on_bank_active(pwr_t *p, uint32_t now_ms);
  * pwr_snapshot_complete() for the current model. A report is uploaded once
  * complete, or when report_timeout_ms has passed since it was asked for, with
  * whatever is there. LOCAL drops to IDLE after local_timeout_ms without a
- * touch or a virtual-BMS request, but not while an upload is still wanted.
+ * touch, but not while an upload is still wanted.
  */
 pwr_out_t pwr_tick(pwr_t *p, uint32_t now_ms, bool snapshot_complete);
 

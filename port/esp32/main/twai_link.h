@@ -10,14 +10,14 @@
 #include <stdint.h>
 
 /*
- * 250 kbit/s, extended frames. Accepts only BMS responses to host 0x40, unless
- * `accept_requests` - the virtual BMS needs to hear requests addressed to it,
- * so then every Daly-priority frame is let in and the callers sort them out.
+ * 250 kbit/s. Receives only Daly BMS responses to host 0x40 (extended frames);
+ * sends either kind, so the virtual BMS can broadcast its 11-bit frames.
  */
-bool twai_link_start(bool accept_requests);
+bool twai_link_start(void);
 void twai_link_stop(void);
 
-bool twai_link_send(uint32_t ext_id, const uint8_t *data, uint8_t len);
+/* `ext`: 29-bit identifier; otherwise 11-bit. */
+bool twai_link_send(uint32_t id, bool ext, const uint8_t *data, uint8_t len);
 
 /* Non-blocking. Returns false when nothing is queued. */
 bool twai_link_recv(uint32_t *ext_id, uint8_t *data, uint8_t *len);

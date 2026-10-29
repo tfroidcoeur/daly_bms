@@ -76,12 +76,6 @@ static void test_local_timeout(void)
     pwr_on_touch(&t, 800);
     expect_out(pwr_tick(&t, 1799, false), true, true, false, false);
     expect_out(pwr_tick(&t, 1800, false), false, false, false, true);
-
-    pwr_t v;
-    pwr_init(&v, short_cfg(), REMOTE_WAKE_BOOT, 0);
-    pwr_on_vbms_request(&v, 800);
-    expect_out(pwr_tick(&v, 1799, false), true, true, false, false);
-    expect_out(pwr_tick(&v, 1800, false), false, false, false, true);
 }
 
 static void test_idle_wakes_to_local(void)
@@ -91,12 +85,6 @@ static void test_idle_wakes_to_local(void)
     pwr_on_touch(&t, 5000);
     CHECK_EQ(t.state, PWR_LOCAL);
     expect_out(pwr_tick(&t, 5000, false), true, true, false, false);
-
-    pwr_t v;
-    pwr_init(&v, short_cfg(), REMOTE_WAKE_TIMER, 0);
-    pwr_on_vbms_request(&v, 5000);
-    CHECK_EQ(v.state, PWR_LOCAL);
-    expect_out(pwr_tick(&v, 5000, false), true, true, false, false);
 }
 
 static void test_report_from_idle(void)
@@ -270,8 +258,8 @@ int main(void)
         void (*fn)(void);
     } tests[] = {
         { "wake causes",                 test_wake_causes },
-        { "LOCAL timeout + touch/vbms",  test_local_timeout },
-        { "IDLE + touch/vbms -> LOCAL",  test_idle_wakes_to_local },
+        { "LOCAL timeout + touch",       test_local_timeout },
+        { "IDLE + touch -> LOCAL",       test_idle_wakes_to_local },
         { "REPORT from IDLE",            test_report_from_idle },
         { "REPORT timeout",              test_report_timeout },
         { "touch during REPORT",         test_touch_during_report },

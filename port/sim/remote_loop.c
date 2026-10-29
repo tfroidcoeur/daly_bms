@@ -108,7 +108,6 @@ int remote_loop(can_link_t *link, vbms_t *vbms, const remote_opts_t *o,
     remote_on_wake(&rs, wake, 0);
 
     pwr_state_t shown = pwr.state;
-    uint32_t vbms_seen = vbms->seen;
     bool sleeping_logged = false;
     uint32_t local_since = 0, last_live = 0;
     bool live_started = false;
@@ -138,21 +137,6 @@ int remote_loop(can_link_t *link, vbms_t *vbms, const remote_opts_t *o,
         uint8_t data[8], len;
         while (can_link_recv(link, &id, data, &len)) {
             poller_on_frame(&bus.poller, id, data, len, now);
-            can_frame_out_t answer[VBMS_MAX_FRAMES];
-            const uint8_t n = vbms_on_frame(vbms, &bus.model, id, data, len, answer);
-            for (uint8_t i = 0; i < n; i++) {
-                can_link_send(link, answer[i].id, answer[i].data, answer[i].len);
-            }
-        }
-        if (vbms->seen != vbms_seen) {
-            vbms_seen = vbms->seen;
-            if (pwr.state == PWR_IDLE) {
-                bus_restart(&bus);
-                wake = REMOTE_WAKE_CAN;
-                remote_on_wake(&rs, wake, now_s);
-                printf("dashboard wake\n");
-            }
-            pwr_on_vbms_request(&pwr, now);
         }
 
         if (o->transport && remote_checkin_due(&rs, now_s)) {
@@ -193,9 +177,8 @@ int remote_loop(can_link_t *link, vbms_t *vbms, const remote_opts_t *o,
                 live_started = false;
             }
             if (pwr.state == PWR_IDLE) {
-                /* The bus goes quiet now; drop what it said, so the first
-                 * dashboard request after a long sleep is not answered from
-                 * old data. */
+                /* The bus goes quiet now; drop what it said, so nothing -
+                 * screen, report or virtual BMS - repeats old data later. */
                 bus_restart(&bus);
             }
             printf("state %s -> %s\n", state_name(shown), state_name(pwr.state));
@@ -206,7 +189,14 @@ int remote_loop(can_link_t *link, vbms_t *vbms, const remote_opts_t *o,
         if (out.poll_can) {
             can_frame_out_t tx;
             if (poller_tick(&bus.poller, now, &tx)) {
-                can_link_send(link, tx.id, tx.data, tx.len);
+                can_link_send(link, tx.id, tx.ext, tx.data, tx.len);
+            }
+            /* Only while polling, as on the board. */
+            can_frame_out_t bcast[VBMS_MAX_FRAMES];
+            const uint8_t nb = vbms_tick(vbms, &bus.model, now, bcast);
+            for (uint8_t i = 0; i < nb; i++) {
+                can_link_send(link, bcast[i].id, bcast[i].ext, bcast[i].data,
+                              bcast[i].len);
             }
         }
 

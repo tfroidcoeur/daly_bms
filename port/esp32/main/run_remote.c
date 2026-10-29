@@ -10,8 +10,8 @@
  *   this file      the board around them: CAN, the panel, Wi-Fi, deep sleep
  *
  * The network runs in its own task. A check-in can take seconds (Wi-Fi, TLS)
- * and the CAN loop must never wait on it, or packs would look offline and a
- * dashboard would go unanswered. The two talk through two queues, and the
+ * and the CAN loop must never wait on it, or packs would look offline and the
+ * virtual BMS's broadcasts would stall. The two talk through two queues, and the
  * remote state is only touched by the network task while a job runs.
  *
  * Every boot - a cold start or a wake from deep sleep - comes through here.
@@ -59,6 +59,13 @@ static const char *TAG = "remote";
 /* A live screen's first snapshot waits for every pack's data, or this long
  * if a pack never answers. */
 #define LIVE_FIRST_MS     15000
+
+/* The bank as one Victron battery (0x355/0x356) for the winch controller. */
+#ifdef CONFIG_BMS_VICTRON
+#define VBMS_ENABLED true
+#else
+#define VBMS_ENABLED false
+#endif
 
 /*
  * NOINIT, not DATA: the bootloader reloads RTC data on every reset that is not
@@ -309,20 +316,16 @@ void run_remote(void)
         ESP_LOGW(TAG, "no Wi-Fi or token set: display only (console: press the button within 10 s of a reset)");
     }
 
-    /* Listen to the bus from the start: a dashboard request must wake the
-     * screen whatever state we are in. The transceiver stays in normal mode
+    /* Bring the bus up from the start. The transceiver stays in normal mode
      * while awake - in standby it could not drive the ACK bit for frames we
      * receive, and the controller would count every one as an error. Only
      * deep sleep puts it in standby. */
     board_can_standby(false);
-    if (!twai_link_start(CONFIG_BMS_VIRTUAL_ADDR != 0)) {
+    if (!twai_link_start()) {
         ESP_LOGE(TAG, "CAN did not come up; check the transceiver wiring");
     }
     vbms_t vbms;
-    if (!vbms_init(&vbms, CONFIG_BMS_VIRTUAL_ADDR)) {
-        vbms_init(&vbms, 0);
-    }
-    uint32_t vbms_seen = vbms.seen;
+    vbms_init(&vbms, VBMS_ENABLED);
 
     pwr_cfg_t cfg = pwr_default_cfg();
     cfg.local_timeout_ms = (uint32_t)CONFIG_BMS_LOCAL_TIMEOUT_S * 1000u;
@@ -371,20 +374,6 @@ void run_remote(void)
             if (polling) {
                 poller_on_frame(&bus.poller, id, data, len, now);
             }
-            can_frame_out_t answer[VBMS_MAX_FRAMES];
-            const uint8_t n = vbms_on_frame(&vbms, &bus.model, id, data, len, answer);
-            for (uint8_t i = 0; i < n && polling; i++) {
-                twai_link_send(answer[i].id, answer[i].data, answer[i].len);
-            }
-        }
-        if (vbms.seen != vbms_seen) {
-            vbms_seen = vbms.seen;
-            if (pwr.state == PWR_IDLE) {
-                bus_restart(&bus);
-                wake_pending = true;
-                last_wake = REMOTE_WAKE_CAN;
-            }
-            pwr_on_vbms_request(&pwr, now);
         }
 
         /* ---- the network ---- */
@@ -470,7 +459,14 @@ void run_remote(void)
         if (polling) {
             can_frame_out_t tx;
             if (poller_tick(&bus.poller, now, &tx)) {
-                twai_link_send(tx.id, tx.data, tx.len);
+                twai_link_send(tx.id, tx.ext, tx.data, tx.len);
+            }
+            /* Only while polling: in IDLE the model has been cleared, and the
+             * controller should time the battery out, not read stale data. */
+            can_frame_out_t bcast[VBMS_MAX_FRAMES];
+            const uint8_t nb = vbms_tick(&vbms, &bus.model, now, bcast);
+            for (uint8_t i = 0; i < nb; i++) {
+                twai_link_send(bcast[i].id, bcast[i].ext, bcast[i].data, bcast[i].len);
             }
         }
 

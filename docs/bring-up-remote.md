@@ -106,7 +106,7 @@ after a real HTTPS check-in, say so.
 | 2 | Press Refresh on the page (signed in) | within one interval: log `check-in ok, report`, the bus comes alive, `upload: 204`; the page shows the snapshot with a fresh time |
 | 3 | Leave it alone 5 min | "Zzz" on the screen, log `deep sleep`, no CAN requests (`candump can0` on the bench adapter stays silent) |
 | 4 | Press the button | live screen within a second or two; the first press does not change page |
-| 5 | Let a dashboard poll address 0x10 (or `cansend can0 18901040#0000000000000000` a few times) | the board wakes, screen live, the virtual BMS answers after the first full poll round |
+| 5 | Wake it with a press, then `candump can0,355:7FF,356:7FF` | 0x355 and 0x356 once a second after the first full poll round, until the screen goes to standby |
 | 6 | Does "Zzz" stay on the glass through deep sleep? | yes - if the screen goes blank or grey instead, report it: the panel pins' hold needs another look |
 | 6a | Press the button with the page open | the page shows **Live** and updates every ~5 s; the screen's top right shows filled signal bars. Walk out of Wi-Fi range: hollow bars, the screen keeps working, back in range the page goes live again |
 | 6b | With current flowing (winch, charger) | the screen does not go to "Zzz" after 5 min; at rest it does |

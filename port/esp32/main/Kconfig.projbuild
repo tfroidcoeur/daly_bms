@@ -39,20 +39,18 @@ config BMS_CAN_LOOP_TEST
 
 endchoice
 
-config BMS_VIRTUAL_ADDR
-    hex "Virtual BMS address (0 = off)"
-    default 0x10
-    range 0x0 0xff
+config BMS_VICTRON
+    bool "Broadcast the bank as a Victron CAN-bus BMS"
+    default y
     help
-      Answer Daly requests to this address with the three packs combined into
-      one, so a dashboard that only knows how to read a single Daly BMS can
-      read the whole bank. Voltage and SoC are averaged, current and remaining
-      capacity summed, cell and temperature extremes taken across all packs.
-      See core/virtual_bms.h for the full set of rules.
+      Send the three packs combined into one battery as Victron CAN-bus BMS
+      frames, for the winch controller: 0x355 (SoC, SoH) and 0x356 (voltage,
+      current, temperature), 11-bit identifiers, once a second while the
+      display is polling the packs. Voltage and SoC are averaged, current
+      summed, the temperature is the warmest sensor. See core/virtual_bms.h.
 
-      Pick an address no real BMS on the bus uses. 0x01-0x03 are the packs and
-      0x40 is the host, so those are refused; Daly also reserve 0x20 (GPRS) and
-      0x80 (Bluetooth), and 0x04-0x05 are best left for future packs.
+      The frames go out on the packs' bus at its 250 kbit/s. Victron devices
+      usually run at 500 kbit/s; a controller set to that will not hear them.
 
 config BMS_INVERT_CURRENT
     bool "Daly reports discharge above the 30000 current bias"
@@ -102,7 +100,7 @@ config BMS_WIFI_PASSWORD
     depends on BMS_REMOTE
 
 config BMS_LOCAL_TIMEOUT_S
-    int "Seconds of live screen after the last button press or dashboard request"
+    int "Seconds of live screen after the last button press"
     default 300
     range 10 3600
     depends on BMS_REMOTE
@@ -113,7 +111,7 @@ config BMS_LIVE_S
     range 0 3600
     depends on BMS_REMOTE
     help
-      While the screen is live (a button press or a dashboard keeps it awake), the
+      While the screen is live (a button press or current flowing keeps it on), the
       board posts a snapshot to the website this often. The console's
       `live <s>` overrides it, and a value set in WP admin overrides both.
 
@@ -125,7 +123,7 @@ config BMS_CAN_RS_GPIO
     help
       Driven low while awake and high in deep sleep, which
       puts the SN65HVD230 in standby: about 0.4 mA instead of up to 10. Its
-      receiver still works, so dashboard traffic still wakes the board.
+      receiver still works, so traffic on the bus still wakes the board.
 
       18 is the onboard KEY line (P1 pin 15); with this set to 18 the KEY
       button is no longer read. Set -1 until the wire is fitted: the

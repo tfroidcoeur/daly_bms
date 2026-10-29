@@ -51,35 +51,32 @@ a short press and an 800 ms hold.
 
 ## Virtual BMS
 
-The display also answers on the bus as a
-**fourth Daly BMS that is the whole bank**, so a dashboard that reads only one
-Daly BMS can read all three packs. The dashboard polls the virtual address
-(`CONFIG_BMS_VIRTUAL_ADDR`, default `0x10`, `0` = off) with normal `0x90`-`0x98`
-requests.
+The display also broadcasts **the whole bank as one battery** in Victron's
+CAN-bus BMS protocol, for the winch controller: `0x355` and `0x356`, 11-bit
+identifiers, little-endian, once a second while the display is polling the
+packs (`CONFIG_BMS_VICTRON`, on by default). Nothing is asked for: Victron is
+push-only. The frames share the packs' bus at 250 kbit/s; a Victron device set
+to its usual 500 kbit/s will not hear them.
 
-| Field                                           | Combined as                                                         |
-|-------------------------------------------------|---------------------------------------------------------------------|
-| Voltage, SoC                                    | mean                                                                |
-| Current, remaining capacity                     | sum                                                                 |
-| Cell / temperature min and max (`0x91`, `0x92`) | extremes across all packs                                           |
-| Cell voltages (`0x95`)                          | per position, the pack whose cell strays furthest from the bank mean |
-| Temperatures (`0x96`)                           | all packs' sensors in sequence, up to 16                            |
-| Charge / discharge MOSFET                       | on only if on in every pack                                         |
-| Faults (`0x98`)                                 | OR across packs, plus *communication failure* while a pack is offline |
-| Cycles                                          | highest                                                             |
+| Frame   | Field                                | Combined as                       |
+|---------|--------------------------------------|-----------------------------------|
+| `0x355` | SoC (1 %, and 0.01 % in bytes 4-5)   | mean                              |
+| `0x355` | SoH                                  | 100 % (Daly does not report it)   |
+| `0x356` | Voltage (0.01 V)                     | mean (the packs share terminals)  |
+| `0x356` | Current (0.1 A, + = charging)        | sum                               |
+| `0x356` | Temperature (0.1 °C)                 | warmest sensor of any pack        |
 
-Cell voltages are not averaged: the packs are separate series strings, and a
-mean would hide a weak cell. Only online packs count; unreported data goes
-unanswered rather than zero, and with every pack offline the virtual BMS is
-silent. Current uses the real packs' sign convention. Rules are in
-`core/virtual_bms.c`.
+Only online packs count. Until a pack has reported its SoC, and whenever every
+pack is offline, nothing is sent, so the controller times the battery out
+rather than read zeros; without a temperature `0x356` is sent 4 bytes long.
+Rules are in `core/virtual_bms.c`.
 
 ## Remote reporting
 
 The display can report the bank to the club website and otherwise keep the
 bus quiet, so the packs reach their own sleep (they stay awake as long as
 anything polls them). It deep-sleeps with "Zzz" on the screen, wakes on a
-button press, on a dashboard request to the virtual BMS, or on a timer to check in
+button press, on bus traffic, or on a timer to check in
 with the website, and uploads a snapshot when the site asks for one. While
 the screen is on it also posts a live snapshot every few seconds (5 s by
 default), and the website page updates itself; the screen stays on for as
@@ -153,7 +150,7 @@ panel's grey-green background.
 
 ```bash
 ./build/sim_headless vcan0                  # same core, as text
-./build/sim_headless vcan0 --virtual 0x10   # ...also answering as the virtual BMS
+./build/sim_headless vcan0 --victron        # ...also broadcasting the virtual BMS
 ./build/test_core                           # unit tests
 candump vcan0                               # raw bus
 ```
@@ -237,7 +234,7 @@ idf.py -C port/esp32 flash monitor
 ```
 
 Use `-C`, not `cd`: the repository root is the host CMake project. Options
-(virtual BMS address, current direction, diagnostic modes) are under *Daly BMS
+(virtual BMS on/off, current direction, diagnostic modes) are under *Daly BMS
 monitor* in `idf.py -C port/esp32 menuconfig`.
 
 ### Flashing

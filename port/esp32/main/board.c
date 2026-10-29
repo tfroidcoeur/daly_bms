@@ -343,8 +343,8 @@ void board_can_standby(bool standby)
 
 void board_deep_sleep(uint32_t seconds)
 {
-    /* Transceiver to standby: its receiver still follows the bus, so a
-     * dashboard's first frame pulls RX low and wakes us. */
+    /* Transceiver to standby: its receiver still follows the bus, so any
+     * frame on it pulls RX low and wakes us. */
     board_can_standby(true);
 #ifdef RS_GPIO
     gpio_hold_en(RS_GPIO);

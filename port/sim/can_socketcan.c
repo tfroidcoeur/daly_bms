@@ -12,8 +12,7 @@
 #include <time.h>
 #include <unistd.h>
 
-bool can_link_open(can_link_t *l, const char *ifname, bool filtered,
-                   uint8_t virtual_addr)
+bool can_link_open(can_link_t *l, const char *ifname, bool filtered)
 {
     l->fd = socket(PF_CAN, SOCK_RAW, CAN_RAW);
     if (l->fd < 0) {
@@ -55,18 +54,12 @@ bool can_link_open(can_link_t *l, const char *ifname, bool filtered,
      * of the two matches nothing.
      */
     if (filtered) {
-        /* Filters OR together; the second, if used, admits requests to the
-         * virtual BMS. */
-        const struct can_filter filt[2] = {
-            { .can_id   = (0x18u << 24) | (0x40u << 8) | CAN_EFF_FLAG,
-              .can_mask = 0x1F00FF00u | CAN_EFF_FLAG },
-            { .can_id   = (0x18u << 24) | ((uint32_t)virtual_addr << 8) |
-                          CAN_EFF_FLAG,
-              .can_mask = 0x1F00FF00u | CAN_EFF_FLAG },
+        const struct can_filter filt = {
+            .can_id   = (0x18u << 24) | (0x40u << 8) | CAN_EFF_FLAG,
+            .can_mask = 0x1F00FF00u | CAN_EFF_FLAG,
         };
-        const size_t n = virtual_addr ? 2 : 1;
-        if (setsockopt(l->fd, SOL_CAN_RAW, CAN_RAW_FILTER, filt,
-                       n * sizeof filt[0]) < 0) {
+        if (setsockopt(l->fd, SOL_CAN_RAW, CAN_RAW_FILTER, &filt,
+                       sizeof filt) < 0) {
             fprintf(stderr, "setsockopt(CAN_RAW_FILTER): %s\n", strerror(errno));
         }
     }
@@ -85,11 +78,12 @@ void can_link_close(can_link_t *l)
     }
 }
 
-bool can_link_send(can_link_t *l, uint32_t ext_id, const uint8_t *data, uint8_t len)
+bool can_link_send(can_link_t *l, uint32_t id, bool ext, const uint8_t *data,
+                   uint8_t len)
 {
     struct can_frame f;
     memset(&f, 0, sizeof f);
-    f.can_id  = (ext_id & CAN_EFF_MASK) | CAN_EFF_FLAG;
+    f.can_id  = ext ? (id & CAN_EFF_MASK) | CAN_EFF_FLAG : id & CAN_SFF_MASK;
     f.can_dlc = len;
     memcpy(f.data, data, len > 8 ? 8 : len);
 
