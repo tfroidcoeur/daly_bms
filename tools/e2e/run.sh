@@ -9,16 +9,26 @@
 #
 # The plugin comes from AVIA_BMS_DIR (default: ../php/aviadpc/avia-bms next to
 # this repo). Timeouts are shortened: 3 s of live screen, 15 s to collect.
+# The plugin refuses check-ins under 60 s; the test runs a copy with that floor
+# at 1 s, so it can check in every 2 s.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 HERE="$REPO/tools/e2e"
-export AVIA_BMS_DIR="${AVIA_BMS_DIR:-$(cd "$REPO/../php/aviadpc/avia-bms" && pwd)}"
+PLUGIN_SRC="${AVIA_BMS_DIR:-$(cd "$REPO/../php/aviadpc/avia-bms" && pwd)}"
 export E2E_PORT="${E2E_PORT:-8090}"
 URL="http://localhost:$E2E_PORT"
 API="$URL/wp-json/avia-bms/v1"
 IF="${IF:-vcan0}"
 WORK="$(mktemp -d)"
+chmod 711 "$WORK"   # the containers' www-data reaches the plugin copy in it
+
+export AVIA_BMS_DIR="$WORK/avia-bms"
+cp -r "$PLUGIN_SRC" "$AVIA_BMS_DIR"
+rm -rf "$AVIA_BMS_DIR/.git"
+sed -i -E 's/(const CHECKIN_S_MIN = )[0-9]+;/\11;/' "$AVIA_BMS_DIR/includes/class-settings.php"
+grep -q 'const CHECKIN_S_MIN = 1;' "$AVIA_BMS_DIR/includes/class-settings.php" \
+    || { echo "could not lower CHECKIN_S_MIN in the plugin copy"; exit 2; }
 PY="$REPO/.venv/bin/python"
 PASS=0
 
@@ -68,7 +78,9 @@ wp core install --url="$URL" --title=E2E --admin_user=admin --admin_password=adm
     --admin_email=admin@example.com --skip-email >/dev/null
 wp rewrite structure '/%postname%/' >/dev/null
 wp plugin activate avia-bms >/dev/null
-php_eval 'Avia_BMS_Settings::set_checkin_s(2); Avia_BMS_Settings::set_auto_period_h(0);'
+php_eval 'var_export( true === Avia_BMS_Settings::set_checkin_s(2) );' | grep -q true \
+    || fail "plugin refused a 2 s check-in interval"
+php_eval 'Avia_BMS_Settings::set_auto_period_h(0);'
 php_eval 'echo Avia_BMS_Settings::rotate_token();' > "$WORK/token"
 chmod 600 "$WORK/token"
 ok "plugin active, check-in every 2 s, automatic report off"
@@ -172,15 +184,16 @@ wait_for 'state LOCAL -> IDLE' 10 "$M"
 ok "touch -> live screen and an immediate check-in -> standby"
 
 echo "=== live reports while the screen is on"
-php_eval 'Avia_BMS_Settings::set_live_s(1);'
+php_eval 'var_export( true === Avia_BMS_Settings::set_live_s(2) );' | grep -q true \
+    || fail "plugin refused a 2 s live interval"
 M=$(mark)
 echo t >&3
 wait_for 'checkin ok' 5 "$M"
-wait_for 'live 204 \(every 1s, 3/3 packs online\)' 20 "$M"
-curl -s "$API/snapshot" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["live_every"] == 1, d["live_every"]; assert d["snapshot"]["packs"][0]["online"]' \
+wait_for 'live 204 \(every 2s, 3/3 packs online\)' 20 "$M"
+curl -s "$API/snapshot" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["live_every"] == 2, d["live_every"]; assert d["snapshot"]["packs"][0]["online"]' \
     || fail "public snapshot not live"
 wait_for 'state LOCAL -> IDLE' 20 "$M"
-sleep 16   # past the page's grace for a 1 s interval
+sleep 16   # past the page's grace for a 2 s interval (15 s)
 curl -s "$API/snapshot" | python3 -c 'import json,sys; assert json.load(sys.stdin)["live_every"] is None' \
     || fail "still live after the screen went to standby"
 php_eval 'Avia_BMS_Settings::set_live_s(null);'
@@ -193,7 +206,8 @@ wait_for 'next=never' 10 "$M"
 wait_for 'sleep until touch or bus' 5 "$M"
 php_eval 'var_export( is_wp_error( Avia_BMS_Requests::request_manual( time() ) ) );' | grep -q true \
     || fail "manual refresh accepted while disabled"
-php_eval 'Avia_BMS_Settings::set_checkin_s(2);'
+php_eval 'var_export( true === Avia_BMS_Settings::set_checkin_s(2) );' | grep -q true \
+    || fail "plugin refused a 2 s check-in interval"
 M=$(mark)
 echo t >&3
 wait_for 'checkin ok cmd=none next=2s' 10 "$M"
